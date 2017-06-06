@@ -1,0 +1,36 @@
+sudo: true
+
+language: python
+
+services:
+  - docker
+
+python:
+  - 2.7
+
+os:
+  - linux
+
+before_install:
+  - git submodule update --init --recursive
+
+install:
+  - pip install -r ./requirements.txt
+  - pip install -r ./tests/requirements.txt
+
+before_script:
+  - wget https://github.com/ohsu-comp-bio/funnel/releases/download/0.1.0/funnel-linux-amd64.tar.gz -O /tmp/funnel-linux-amd64.tar.gz
+  - tar -zxvf /tmp/funnel-linux-amd64.tar.gz -C /tmp
+  - mv /tmp/funnel-linux-amd64 /tmp/funnel
+  - export PATH=$PATH:/tmp
+  - docker pull python:2.7
+
+script: 
+  - nosetests -w ./tests
+
+after_failure:
+  - echo "FUNNEL LOGS ----------"
+  - cat ./tests/test_tmp/conformance_test_v1.0_*/funnel_log.txt
+
+notifications:
+  email: false
