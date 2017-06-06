@@ -17,8 +17,11 @@ class TestConformance(SimpleServerTest):
         ctest_def = os.path.join(cwl_testdir, "conformance_test_v1.0.yaml")
         tool_entry = os.path.join(self.rootprojectdir, "cwl-tes")
 
+        # test 71 - is identified as a FILE schemas/v1.0/v1.0/testdir/c 
+        # when it is actually a DIRECTORY
+        # test 72 - writeable staged files (Funnel mounts in all inputs as RO)
         cmd = ["cwltest", "--test", ctest_def, "--basedir", self.tmpdir,
-               "--tool", tool_entry, "-n", "1-71,73-87", "-j", "20"]
+               "--tool", tool_entry, "-n", "1-70,73-87", "-j", "20"]
 
         testlog = os.path.join(
             self.tmpdir,

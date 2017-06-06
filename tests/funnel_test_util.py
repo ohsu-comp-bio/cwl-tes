@@ -85,10 +85,9 @@ class SimpleServerTest(unittest.TestCase):
 
         f, db_path = tempfile.mkstemp(dir=self.tmpdir, prefix="tes_task_db.")
         os.close(f)
-        funnel_work_dir = os.path.join(self.tmpdir + "funnel-work-dir")
+        funnel_work_dir = os.path.join(self.tmpdir, "funnel-work-dir")
         os.mkdir(funnel_work_dir)
-        slogFile = os.path.join(self.tmpdir, "funnel_server_log.txt")
-        wlogFile = os.path.join(self.tmpdir, "funnel_worker_log.txt")
+        logFile = os.path.join(self.tmpdir, "funnel_log.txt")
 
         # Build server config file (YAML)
         rate = config_seconds(0.05)
@@ -98,22 +97,20 @@ class SimpleServerTest(unittest.TestCase):
             "RPCPort": "9090",
             "DBPath": db_path,
             "WorkDir": funnel_work_dir,
-            "Storage": [{
+            "Storage": {
                 "Local": {
                     "AllowedDirs": [self.testdir]
                 }
-            }],
+            },
             "LogLevel": "debug",
-            "LogPath": slogFile,
+            "LogPath": logFile,
             "Worker": {
                 "Timeout": -1,
                 "StatusPollRate": rate,
                 "LogUpdateRate": rate,
                 "NewJobPollRate": rate,
                 "UpdateRate": rate,
-                "TrackerRate": rate,
-                "LogLevel": "debug",
-                "LogPath": wlogFile,
+                "TrackerRate": rate
             },
             "ScheduleRate": rate,
         })
