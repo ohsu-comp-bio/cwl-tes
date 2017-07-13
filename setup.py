@@ -5,7 +5,7 @@ from __future__ import print_function
 import os
 import sys
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 
 # if python3 runtime and `setup.py install` is called
@@ -29,8 +29,10 @@ setup(
     download_url="https://github.com/common-workflow-language/cwl-tes",
     license='Apache 2.0',
     install_requires=[
-        'cwltool>=1.0.20170525215327'
+        'cwltool==1.0.20170707200431',
+        'requests>=2.14.2',
     ],
+    packages=find_packages(),
     entry_points={
         'console_scripts': ["cwl-tes=cwl_tes.main:main"]},
     zip_safe=True
