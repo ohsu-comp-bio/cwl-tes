@@ -1,6 +1,7 @@
+import logging
 import os
 import shutil
-import logging
+import tes
 
 from cwltool.draft2tool import CommandLineTool
 from cwltool.errors import WorkflowException
@@ -14,36 +15,8 @@ from pprint import pformat
 
 from schema_salad.ref_resolver import file_uri
 
-try:
-    import requests
-except ImportError:
-    pass
 
 log = logging.getLogger('tes-backend')
-
-
-class TESService:
-
-    def __init__(self, addr):
-        if not addr.startswith("http"):
-            addr = "http://" + addr
-
-        if addr.endswith("/"):
-            addr = addr[:-1]
-
-        self.addr = addr
-
-    def submit(self, task):
-        r = requests.post(url='%s/v1/tasks' % (self.addr), json=task)
-        r.raise_for_status()
-        data = r.json()
-        return data['id']
-
-    def get_job(self, task_id):
-        r = requests.get(url='%s/v1/tasks/%s' % (self.addr, task_id),
-                         params={'view': 'MINIMAL'})
-        r.raise_for_status()
-        return r.json()
 
 
 class TESPipeline(Pipeline):
@@ -51,7 +24,7 @@ class TESPipeline(Pipeline):
     def __init__(self, url, kwargs):
         super(TESPipeline, self).__init__()
         self.kwargs = kwargs
-        self.service = TESService(url)
+        self.service = tes.HTTPClient(url)
         if kwargs.get('basedir') is not None:
             self.basedir = kwargs.get('basedir')
         else:
@@ -93,21 +66,21 @@ class TESPipelineJob(PipelineJob):
 
     def create_input_parameter(self, name, d):
         if 'contents' in d:
-            return {
-                'name': name,
-                'description': 'cwl_input:%s' % (name),
-                'path': d['path'],
-                'contents': d['contents'],
-                'type': d['class'].upper()
-            }
+            return tes.TaskParameter(
+                name=name,
+                description='cwl_input:%s' % (name),
+                path=d['path'],
+                contents=d['contents'],
+                type=d['class'].upper()
+            )
         else:
-            return {
-                'name': name,
-                'description': 'cwl_input:%s' % (name),
-                'url': d['location'],
-                'path': d['path'],
-                'type': d['class'].upper()
-            }
+            return tes.TaskParameter(
+                name=name,
+                description='cwl_input:%s' % (name),
+                url=d['location'],
+                path=d['path'],
+                type=d['class'].upper()
+            )
 
     def parse_job_order(self, k, v, inputs):
         if isinstance(v, dict):
@@ -149,12 +122,12 @@ class TESPipelineJob(PipelineJob):
                     gen.write(listing['contents'])
                 else:
                     loc = listing['location']
-            parameter = {
-                'name': listing['basename'],
-                'description': 'InitialWorkDirRequirement:cwl_input:%s' % (listing['basename']),
-                'url': file_uri(loc),
-                'path': self.fs_access.join(self.docker_workdir, listing['basename'])
-            }
+            parameter = tes.TaskParameter(
+                name=listing['basename'],
+                description='InitialWorkDirRequirement:cwl_input:%s' % (listing['basename']),
+                url=file_uri(loc),
+                path=self.fs_access.join(self.docker_workdir, listing['basename'])
+            )
             inputs.append(parameter)
 
         return inputs
@@ -164,27 +137,29 @@ class TESPipelineJob(PipelineJob):
         output_parameters = []
 
         if self.stdout is not None:
-            parameter = {
-                'name': 'stdout',
-                'url': self.output2url(self.stdout),
-                'path': self.output2path(self.stdout)
-            }
+            parameter = tes.TaskParameter(
+                name='stdout',
+                url=self.output2url(self.stdout),
+                path=self.output2path(self.stdout)
+            )
             output_parameters.append(parameter)
 
         if self.stderr is not None:
-            parameter = {
-                'name': 'stderr',
-                'url': self.output2url(self.stderr),
-                'path': self.output2path(self.stderr)
-            }
+            parameter = tes.TaskParameter(
+               name='stderr',
+               url=self.output2url(self.stderr),
+               path=self.output2path(self.stderr)
+            )
             output_parameters.append(parameter)
 
-        output_parameters.append({
-            'name': 'workdir',
-            'url': self.output2url(''),
-            'path': self.docker_workdir,
-            'type': 'DIRECTORY'
-        })
+        output_parameters.append(
+            tes.TaskParameter(
+                name='workdir',
+                url=self.output2url(''),
+                path=self.docker_workdir,
+                type='DIRECTORY'
+            )
+        )
 
         container = self.find_docker_requirement()
 
@@ -198,40 +173,38 @@ class TESPipelineJob(PipelineJob):
                 disk = i.get('outdirMin', i.get('outdirMax', None))
             elif i.get('class', 'NA') == 'DockerRequirement':
                 if i.get('dockerOutputDirectory', None) is not None:
-                    output_parameters.append({
-                        'name': 'dockerOutputDirectory',
-                        'url': self.output2url(''),
-                        'path': i.get('dockerOutputDirectory'),
-                        'type': 'DIRECTORY'
-                    })
+                    output_parameters.append(
+                        tes.TaskParameter(
+                            name='dockerOutputDirectory',
+                            url=self.output2url(''),
+                            path=i.get('dockerOutputDirectory'),
+                            type='DIRECTORY'
+                        )
+                    )
 
-        resources = {}
-        if cpus is not None:
-            resources['cpu_cores'] = cpus
-
-        if ram is not None:
-            resources['ram_gb'] = ram
-
-        if disk is not None:
-            resources['size_gb'] = disk
-
-        create_body = {
-            'name': self.name,
-            'description': self.spec.get('doc', ''),
-            'executors': [{
-                'cmd': self.command_line,
-                'image_name': container,
-                'workdir': self.docker_workdir,
-                'stdout': self.output2path(self.stdout),
-                'stderr': self.output2path(self.stderr),
-                'stdin': self.stdin,
-                'environ': self.environment
-            }],
-            'inputs': input_parameters,
-            'outputs': output_parameters,
-            'resources': resources,
-            'tags': {'CWLDocumentId': self.spec.get('id')}
-        }
+        create_body = tes.Task(
+            name=self.name,
+            description=self.spec.get('doc', ''),
+            executors=[
+                tes.Executor(
+                    cmd=self.command_line,
+                    image_name=container,
+                    workdir=self.docker_workdir,
+                    stdout=self.output2path(self.stdout),
+                    stderr=self.output2path(self.stderr),
+                    stdin=self.stdin,
+                    environ=self.environment
+                )
+            ],
+            inputs=input_parameters,
+            outputs=output_parameters,
+            resources=tes.Resources(
+                cpu_cores=cpus,
+                ram_gb=ram,
+                size_gb=disk
+            ),
+            tags={'CWLDocumentId': self.spec.get('id')}
+        )
 
         return create_body
 
@@ -247,10 +220,10 @@ class TESPipelineJob(PipelineJob):
         log.debug(pformat(task))
 
         try:
-            task_id = self.pipeline.service.submit(task)
+            task_id = self.pipeline.service.create_task(task)
             log.debug('[job %s] SUBMITTED TASK ----------------------' % (self.name))
             log.debug('[job %s] task id: %s ' % (self.name, task_id))
-            operation = self.pipeline.service.get_job(task_id)
+            operation = self.pipeline.service.get_task(task_id, "MINIMAL")
         except Exception as e:
             log.error(u"[job %s] Failed to submit task to TES service:\n%s" % (self.name, e))
             return WorkflowException(e)
@@ -311,14 +284,15 @@ class TESPipelinePoll(PollThread):
         self.callback = callback
 
     def poll(self):
-        return self.service.get_job(self.operation['id'])
+        return self.service.get_task(self.operation['id'], "MINIMAL")
 
     def is_done(self, operation):
         terminal_states = ['COMPLETE', 'CANCELED', 'ERROR', 'SYSTEM_ERROR']
         if 'state' in operation:
             if operation['state'] in terminal_states:
-                log.debug('[job %s] JOB %s ------------------' %
-                          (self.name, operation['state'])
+                log.debug(
+                    '[job %s] JOB %s ------------------' %
+                    (self.name, operation['state'])
                 )
                 return True
         return False
