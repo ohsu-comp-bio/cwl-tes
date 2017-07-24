@@ -1,49 +1,23 @@
+from __future__ import absolute_import, print_function
+
+import logging
 import os
 import shutil
-import logging
+import tes
 
 from cwltool.draft2tool import CommandLineTool
-from cwltool.errors import WorkflowException
+from cwltool.errors import WorkflowException, UnsupportedRequirement
 from cwltool.pathmapper import PathMapper
 from cwltool.stdfsaccess import StdFsAccess
 from cwltool.workflow import defaultMakeTool
-
-from pipeline import Pipeline, PipelineJob
-from poll import PollThread
 from pprint import pformat
-
 from schema_salad.ref_resolver import file_uri
 
-try:
-    import requests
-except ImportError:
-    pass
+from cwl_tes.pipeline import Pipeline, PipelineJob
+from cwl_tes.poll import PollThread
+
 
 log = logging.getLogger('tes-backend')
-
-
-class TESService:
-
-    def __init__(self, addr):
-        if not addr.startswith("http"):
-            addr = "http://" + addr
-
-        if addr.endswith("/"):
-            addr = addr[:-1]
-
-        self.addr = addr
-
-    def submit(self, task):
-        r = requests.post(url='%s/v1/tasks' % (self.addr), json=task)
-        r.raise_for_status()
-        data = r.json()
-        return data['id']
-
-    def get_job(self, task_id):
-        r = requests.get(url='%s/v1/tasks/%s' % (self.addr, task_id),
-                         params={'view': 'MINIMAL'})
-        r.raise_for_status()
-        return r.json()
 
 
 class TESPipeline(Pipeline):
@@ -51,7 +25,7 @@ class TESPipeline(Pipeline):
     def __init__(self, url, kwargs):
         super(TESPipeline, self).__init__()
         self.kwargs = kwargs
-        self.service = TESService(url)
+        self.service = tes.HTTPClient(url)
         if kwargs.get('basedir') is not None:
             self.basedir = kwargs.get('basedir')
         else:
@@ -90,24 +64,25 @@ class TESPipelineJob(PipelineJob):
         self.outputs = None
         self.docker_workdir = '/var/spool/cwl'
         self.fs_access = fs_access
+        self.inplace_update = False
 
     def create_input_parameter(self, name, d):
         if 'contents' in d:
-            return {
-                'name': name,
-                'description': 'cwl_input:%s' % (name),
-                'path': d['path'],
-                'contents': d['contents'],
-                'type': d['class'].upper()
-            }
+            return tes.TaskParameter(
+                name=name,
+                description='cwl_input:%s' % (name),
+                path=d['path'],
+                contents=d['contents'],
+                type=d['class'].upper()
+            )
         else:
-            return {
-                'name': name,
-                'description': 'cwl_input:%s' % (name),
-                'url': d['location'],
-                'path': d['path'],
-                'type': d['class'].upper()
-            }
+            return tes.TaskParameter(
+                name=name,
+                description='cwl_input:%s' % (name),
+                url=d['location'],
+                path=d['path'],
+                type=d['class'].upper()
+            )
 
     def parse_job_order(self, k, v, inputs):
         if isinstance(v, dict):
@@ -136,55 +111,72 @@ class TESPipelineJob(PipelineJob):
 
         return inputs
 
-    def collect_input_parameters(self):
-        inputs = []
-        for k, v in self.joborder.items():
-            self.parse_job_order(k, v, inputs)
+    def parse_listing(self, listing, inputs):
+        for item in listing:
 
-        # manage InitialWorkDirRequirement
-        for listing in self.generatefiles['listing']:
-            loc = self.fs_access.join(self.tmpdir, listing['basename'])
-            with self.fs_access.open(loc, 'wb') as gen:
-                if 'contents' in listing:
-                    gen.write(listing['contents'])
-                else:
-                    loc = listing['location']
-            parameter = {
-                'name': listing['basename'],
-                'description': 'InitialWorkDirRequirement:cwl_input:%s' % (listing['basename']),
-                'url': file_uri(loc),
-                'path': self.fs_access.join(self.docker_workdir, listing['basename'])
-            }
+            if 'writable' in item:
+                raise UnsupportedRequirement(
+                    'The TES spec does not allow for writable inputs'
+                    )
+
+            if 'contents' in item:
+                loc = self.fs_access.join(self.tmpdir, item['basename'])
+                with self.fs_access.open(loc, 'wb') as gen:
+                    gen.write(item['contents'])
+            else:
+                loc = item['location']
+                    
+            parameter = tes.TaskParameter(
+                name=item['basename'],
+                description='InitialWorkDirRequirement:cwl_input:%s' % (item['basename']),
+                url=file_uri(loc),
+                path=self.fs_access.join(self.docker_workdir, item['basename']),
+                type=item['class'].upper()
+                )
             inputs.append(parameter)
 
         return inputs
 
-    def create_task(self):
+    def collect_input_parameters(self):
+        inputs = []
+
+        # find all primary and secondary input files
+        for k, v in self.joborder.items():
+            self.parse_job_order(k, v, inputs)
+
+        # manage InitialWorkDirRequirement
+        self.parse_listing(self.generatefiles['listing'], inputs)
+
+        return inputs
+
+    def create_task_msg(self):
         input_parameters = self.collect_input_parameters()
         output_parameters = []
 
         if self.stdout is not None:
-            parameter = {
-                'name': 'stdout',
-                'url': self.output2url(self.stdout),
-                'path': self.output2path(self.stdout)
-            }
+            parameter = tes.TaskParameter(
+                name='stdout',
+                url=self.output2url(self.stdout),
+                path=self.output2path(self.stdout)
+            )
             output_parameters.append(parameter)
 
         if self.stderr is not None:
-            parameter = {
-                'name': 'stderr',
-                'url': self.output2url(self.stderr),
-                'path': self.output2path(self.stderr)
-            }
+            parameter = tes.TaskParameter(
+               name='stderr',
+               url=self.output2url(self.stderr),
+               path=self.output2path(self.stderr)
+            )
             output_parameters.append(parameter)
 
-        output_parameters.append({
-            'name': 'workdir',
-            'url': self.output2url(''),
-            'path': self.docker_workdir,
-            'type': 'DIRECTORY'
-        })
+        output_parameters.append(
+            tes.TaskParameter(
+                name='workdir',
+                url=self.output2url(''),
+                path=self.docker_workdir,
+                type='DIRECTORY'
+            )
+        )
 
         container = self.find_docker_requirement()
 
@@ -198,59 +190,57 @@ class TESPipelineJob(PipelineJob):
                 disk = i.get('outdirMin', i.get('outdirMax', None))
             elif i.get('class', 'NA') == 'DockerRequirement':
                 if i.get('dockerOutputDirectory', None) is not None:
-                    output_parameters.append({
-                        'name': 'dockerOutputDirectory',
-                        'url': self.output2url(''),
-                        'path': i.get('dockerOutputDirectory'),
-                        'type': 'DIRECTORY'
-                    })
+                    output_parameters.append(
+                        tes.TaskParameter(
+                            name='dockerOutputDirectory',
+                            url=self.output2url(''),
+                            path=i.get('dockerOutputDirectory'),
+                            type='DIRECTORY'
+                        )
+                    )
 
-        resources = {}
-        if cpus is not None:
-            resources['cpu_cores'] = cpus
-
-        if ram is not None:
-            resources['ram_gb'] = ram
-
-        if disk is not None:
-            resources['size_gb'] = disk
-
-        create_body = {
-            'name': self.name,
-            'description': self.spec.get('doc', ''),
-            'executors': [{
-                'cmd': self.command_line,
-                'image_name': container,
-                'workdir': self.docker_workdir,
-                'stdout': self.output2path(self.stdout),
-                'stderr': self.output2path(self.stderr),
-                'stdin': self.stdin,
-                'environ': self.environment
-            }],
-            'inputs': input_parameters,
-            'outputs': output_parameters,
-            'resources': resources,
-            'tags': {'CWLDocumentId': self.spec.get('id')}
-        }
+        create_body = tes.Task(
+            name=self.name,
+            description=self.spec.get('doc', ''),
+            executors=[
+                tes.Executor(
+                    cmd=self.command_line,
+                    image_name=container,
+                    workdir=self.docker_workdir,
+                    stdout=self.output2path(self.stdout),
+                    stderr=self.output2path(self.stderr),
+                    stdin=self.stdin,
+                    environ=self.environment
+                )
+            ],
+            inputs=input_parameters,
+            outputs=output_parameters,
+            resources=tes.Resources(
+                cpu_cores=cpus,
+                ram_gb=ram,
+                size_gb=disk
+            ),
+            tags={'CWLDocumentId': self.spec.get('id')}
+        )
 
         return create_body
 
     def run(self, pull_image=True, rm_container=True, rm_tmpdir=True,
             move_outputs='move', **kwargs):
         # useful for debugging
-        # log.debug('[job %s] self.__dict__ from run() ----------------------' % (self.name))
-        # log.debug(pformat(self.__dict__))
+        log.debug('[job %s] self.__dict__ from run() ----------------------' % (self.name))
+        log.debug(pformat(self.__dict__))
 
-        task = self.create_task()
+        task = self.create_task_msg()
 
         log.debug('[job %s] CREATED TASK MSG----------------------' % (self.name))
         log.debug(pformat(task))
 
         try:
-            task_id = self.pipeline.service.submit(task)
+            task_id = self.pipeline.service.create_task(task)
             log.debug('[job %s] SUBMITTED TASK ----------------------' % (self.name))
             log.debug('[job %s] task id: %s ' % (self.name, task_id))
-            operation = self.pipeline.service.get_job(task_id)
+            operation = self.pipeline.service.get_task(task_id, "MINIMAL")
         except Exception as e:
             log.error(u"[job %s] Failed to submit task to TES service:\n%s" % (self.name, e))
             return WorkflowException(e)
@@ -311,16 +301,16 @@ class TESPipelinePoll(PollThread):
         self.callback = callback
 
     def poll(self):
-        return self.service.get_job(self.operation['id'])
+        return self.service.get_task(self.operation.id, "MINIMAL")
 
     def is_done(self, operation):
         terminal_states = ['COMPLETE', 'CANCELED', 'ERROR', 'SYSTEM_ERROR']
-        if 'state' in operation:
-            if operation['state'] in terminal_states:
-                log.debug('[job %s] JOB %s ------------------' %
-                          (self.name, operation['state'])
-                )
-                return True
+        if operation.state in terminal_states:
+            log.debug(
+                '[job %s] JOB %s ------------------' %
+                (self.name, operation.state)
+            )
+            return True
         return False
 
     def complete(self, operation):

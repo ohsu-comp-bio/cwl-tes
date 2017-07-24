@@ -1,9 +1,11 @@
+from __future__ import absolute_import, print_function
+
 import sys
 import logging
 
 import cwltool.main
 
-from tes import TESPipeline
+from cwl_tes.tes import TESPipeline
 
 log = logging.getLogger('tes-backend')
 log.setLevel(logging.DEBUG)
@@ -22,15 +24,16 @@ def main(args):
 
     if parsed_args.tes is not None:
         pipeline = TESPipeline(parsed_args.tes, vars(parsed_args))
-        cwltool.main.main(
+        rc = cwltool.main.main(
             args=parsed_args,
             executor=pipeline.executor,
             makeTool=pipeline.make_tool
         )
     else:
-        cwltool.main.main(
+        rc = cwltool.main.main(
             args=parsed_args
         )
+    return rc
 
 
 def add_args(parser):
