@@ -30,8 +30,8 @@ setup(
     packages=find_packages(),
     python_requires='>=2.6, <3',
     install_requires=[
-        'cwltool==1.0.20170707200431',
-        'py-tes>=0.1.0',
+        'cwltool==1.0.20170723124118',
+        'py-tes>=0.1.2',
         'requests>=2.14.2'
     ],
     entry_points={

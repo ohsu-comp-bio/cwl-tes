@@ -6,7 +6,7 @@ import shutil
 import tes
 
 from cwltool.draft2tool import CommandLineTool
-from cwltool.errors import WorkflowException
+from cwltool.errors import WorkflowException, UnsupportedRequirement
 from cwltool.pathmapper import PathMapper
 from cwltool.stdfsaccess import StdFsAccess
 from cwltool.workflow import defaultMakeTool
@@ -64,6 +64,7 @@ class TESPipelineJob(PipelineJob):
         self.outputs = None
         self.docker_workdir = '/var/spool/cwl'
         self.fs_access = fs_access
+        self.inplace_update = False
 
     def create_input_parameter(self, name, d):
         if 'contents' in d:
@@ -117,6 +118,10 @@ class TESPipelineJob(PipelineJob):
 
         # manage InitialWorkDirRequirement
         for listing in self.generatefiles['listing']:
+            if 'writable' in listing:
+                raise UnsupportedRequirement(
+                    'The TES spec does not allow for writable inputs'
+                )
             loc = self.fs_access.join(self.tmpdir, listing['basename'])
             with self.fs_access.open(loc, 'wb') as gen:
                 if 'contents' in listing:
