@@ -111,30 +111,41 @@ class TESPipelineJob(PipelineJob):
 
         return inputs
 
+    def parse_listing(self, listing, inputs):
+        for item in listing:
+
+            if 'writable' in item:
+                raise UnsupportedRequirement(
+                    'The TES spec does not allow for writable inputs'
+                    )
+
+            if 'contents' in item:
+                loc = self.fs_access.join(self.tmpdir, item['basename'])
+                with self.fs_access.open(loc, 'wb') as gen:
+                    gen.write(item['contents'])
+            else:
+                loc = item['location']
+                    
+            parameter = tes.TaskParameter(
+                name=item['basename'],
+                description='InitialWorkDirRequirement:cwl_input:%s' % (item['basename']),
+                url=file_uri(loc),
+                path=self.fs_access.join(self.docker_workdir, item['basename']),
+                type=item['class'].upper()
+                )
+            inputs.append(parameter)
+
+        return inputs
+
     def collect_input_parameters(self):
         inputs = []
+
+        # find all primary and secondary input files
         for k, v in self.joborder.items():
             self.parse_job_order(k, v, inputs)
 
         # manage InitialWorkDirRequirement
-        for listing in self.generatefiles['listing']:
-            if 'writable' in listing:
-                raise UnsupportedRequirement(
-                    'The TES spec does not allow for writable inputs'
-                )
-            loc = self.fs_access.join(self.tmpdir, listing['basename'])
-            with self.fs_access.open(loc, 'wb') as gen:
-                if 'contents' in listing:
-                    gen.write(listing['contents'])
-                else:
-                    loc = listing['location']
-            parameter = tes.TaskParameter(
-                name=listing['basename'],
-                description='InitialWorkDirRequirement:cwl_input:%s' % (listing['basename']),
-                url=file_uri(loc),
-                path=self.fs_access.join(self.docker_workdir, listing['basename'])
-            )
-            inputs.append(parameter)
+        self.parse_listing(self.generatefiles['listing'], inputs)
 
         return inputs
 
@@ -217,8 +228,8 @@ class TESPipelineJob(PipelineJob):
     def run(self, pull_image=True, rm_container=True, rm_tmpdir=True,
             move_outputs='move', **kwargs):
         # useful for debugging
-        # log.debug('[job %s] self.__dict__ from run() ----------------------' % (self.name))
-        # log.debug(pformat(self.__dict__))
+        log.debug('[job %s] self.__dict__ from run() ----------------------' % (self.name))
+        log.debug(pformat(self.__dict__))
 
         task = self.create_task_msg()
 
