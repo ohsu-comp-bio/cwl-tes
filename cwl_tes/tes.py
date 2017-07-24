@@ -1,3 +1,5 @@
+from __future__ import absolute_import, print_function
+
 import logging
 import os
 import shutil
@@ -8,12 +10,11 @@ from cwltool.errors import WorkflowException
 from cwltool.pathmapper import PathMapper
 from cwltool.stdfsaccess import StdFsAccess
 from cwltool.workflow import defaultMakeTool
-
-from pipeline import Pipeline, PipelineJob
-from poll import PollThread
 from pprint import pformat
-
 from schema_salad.ref_resolver import file_uri
+
+from cwl_tes.pipeline import Pipeline, PipelineJob
+from cwl_tes.poll import PollThread
 
 
 log = logging.getLogger('tes-backend')
@@ -132,7 +133,7 @@ class TESPipelineJob(PipelineJob):
 
         return inputs
 
-    def create_task(self):
+    def create_task_msg(self):
         input_parameters = self.collect_input_parameters()
         output_parameters = []
 
@@ -214,7 +215,7 @@ class TESPipelineJob(PipelineJob):
         # log.debug('[job %s] self.__dict__ from run() ----------------------' % (self.name))
         # log.debug(pformat(self.__dict__))
 
-        task = self.create_task()
+        task = self.create_task_msg()
 
         log.debug('[job %s] CREATED TASK MSG----------------------' % (self.name))
         log.debug(pformat(task))
@@ -284,17 +285,16 @@ class TESPipelinePoll(PollThread):
         self.callback = callback
 
     def poll(self):
-        return self.service.get_task(self.operation['id'], "MINIMAL")
+        return self.service.get_task(self.operation.id, "MINIMAL")
 
     def is_done(self, operation):
         terminal_states = ['COMPLETE', 'CANCELED', 'ERROR', 'SYSTEM_ERROR']
-        if 'state' in operation:
-            if operation['state'] in terminal_states:
-                log.debug(
-                    '[job %s] JOB %s ------------------' %
-                    (self.name, operation['state'])
-                )
-                return True
+        if operation.state in terminal_states:
+            log.debug(
+                '[job %s] JOB %s ------------------' %
+                (self.name, operation.state)
+            )
+            return True
         return False
 
     def complete(self, operation):

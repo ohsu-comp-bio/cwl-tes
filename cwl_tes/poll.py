@@ -1,3 +1,5 @@
+from __future__ import absolute_import, print_function
+
 import time
 import threading
 import logging
@@ -32,7 +34,7 @@ class PollThread(threading.Thread):
             #     self.poll_interval += 1
             log.debug(
                 '[job %s] POLLING %s' %
-                (self.name, pformat(self.operation.get('id', "NA")))
+                (self.name, pformat(self.operation.id))
             )
             try:
                 self.operation = self.poll()

@@ -1,9 +1,11 @@
+from __future__ import absolute_import, print_function
+
 import sys
 import logging
 
 import cwltool.main
 
-from tes import TESPipeline
+from cwl_tes.tes import TESPipeline
 
 log = logging.getLogger('tes-backend')
 log.setLevel(logging.DEBUG)
