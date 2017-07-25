@@ -102,9 +102,16 @@ class SimpleServerTest(unittest.TestCase):
                     "AllowedDirs": [self.testdir]
                 }
             },
-            "LogLevel": "debug",
-            "LogPath": logFile,
+            "Logger": {
+                "Level": "debug",
+                "OutputFile": logFile,
+            },
             "Worker": {
+                "WorkDir": funnel_work_dir,
+                "Logger": {
+                    "Level": "debug",
+                    "OutputFile": logFile,
+                },
                 "Timeout": -1,
                 "StatusPollRate": rate,
                 "LogUpdateRate": rate,

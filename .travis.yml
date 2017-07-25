@@ -15,7 +15,7 @@ install:
   - pip install -r ./tests/requirements.txt
 
 before_script:
-  - wget https://github.com/ohsu-comp-bio/funnel/releases/download/0.1.0/funnel-linux-amd64.tar.gz -O /tmp/funnel-linux-amd64.tar.gz
+  - wget https://github.com/ohsu-comp-bio/funnel/releases/download/0.2.0/funnel-linux-amd64.tar.gz -O /tmp/funnel-linux-amd64.tar.gz
   - tar -zxvf /tmp/funnel-linux-amd64.tar.gz -C /tmp
   - mv /tmp/funnel-linux-amd64 /tmp/funnel
   - export PATH=$PATH:/tmp
