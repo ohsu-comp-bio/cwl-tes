@@ -19,7 +19,7 @@ README = os.path.join(SETUP_DIR, 'README.md')
 
 setup(
     name='cwl-tes',
-    version='0.1.0',
+    version='0.1.1',
     description='Common workflow language reference implementation backended \
     by a GA4GH Task Execution Service',
     long_description=open(README).read(),
