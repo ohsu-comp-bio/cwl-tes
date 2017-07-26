@@ -68,21 +68,21 @@ class TESPipelineJob(PipelineJob):
 
     def create_input_parameter(self, name, d):
         if 'contents' in d:
-            return tes.TaskParameter(
-                name=name,
-                description='cwl_input:%s' % (name),
-                path=d['path'],
-                contents=d['contents'],
-                type=d['class'].upper()
-            )
+            return {
+                "name": name,
+                "description": 'cwl_input:%s' % (name),
+                "path": d['path'],
+                "contents": d['contents'],
+                "type": d['class'].upper()
+            }
         else:
-            return tes.TaskParameter(
-                name=name,
-                description='cwl_input:%s' % (name),
-                url=d['location'],
-                path=d['path'],
-                type=d['class'].upper()
-            )
+            return {
+                "name": name,
+                "description": 'cwl_input:%s' % (name),
+                "url": d['location'],
+                "path": d['path'],
+                "type": d['class'].upper()
+            }
 
     def parse_job_order(self, k, v, inputs):
         if isinstance(v, dict):
@@ -125,14 +125,14 @@ class TESPipelineJob(PipelineJob):
                     gen.write(item['contents'])
             else:
                 loc = item['location']
-                    
-            parameter = tes.TaskParameter(
-                name=item['basename'],
-                description='InitialWorkDirRequirement:cwl_input:%s' % (item['basename']),
-                url=file_uri(loc),
-                path=self.fs_access.join(self.docker_workdir, item['basename']),
-                type=item['class'].upper()
-                )
+
+            parameter = {
+                "name": item['basename'],
+                "description": 'InitialWorkDirRequirement:cwl_input:%s' % (item['basename']),
+                "url": file_uri(loc),
+                "path": self.fs_access.join(self.docker_workdir, item['basename']),
+                "type": item['class'].upper()
+                }
             inputs.append(parameter)
 
         return inputs
@@ -154,28 +154,28 @@ class TESPipelineJob(PipelineJob):
         output_parameters = []
 
         if self.stdout is not None:
-            parameter = tes.TaskParameter(
-                name='stdout',
-                url=self.output2url(self.stdout),
-                path=self.output2path(self.stdout)
-            )
+            parameter = {
+                "name": 'stdout',
+                "url": self.output2url(self.stdout),
+                "path": self.output2path(self.stdout)
+            }
             output_parameters.append(parameter)
 
         if self.stderr is not None:
-            parameter = tes.TaskParameter(
-               name='stderr',
-               url=self.output2url(self.stderr),
-               path=self.output2path(self.stderr)
-            )
+            parameter = {
+               "name": 'stderr',
+               "url": self.output2url(self.stderr),
+               "path": self.output2path(self.stderr)
+            }
             output_parameters.append(parameter)
 
         output_parameters.append(
-            tes.TaskParameter(
-                name='workdir',
-                url=self.output2url(''),
-                path=self.docker_workdir,
-                type='DIRECTORY'
-            )
+            {
+                "name": 'workdir',
+                "url": self.output2url(''),
+                "path": self.docker_workdir,
+                "type": 'DIRECTORY'
+            }
         )
 
         container = self.find_docker_requirement()
@@ -191,45 +191,45 @@ class TESPipelineJob(PipelineJob):
             elif i.get('class', 'NA') == 'DockerRequirement':
                 if i.get('dockerOutputDirectory', None) is not None:
                     output_parameters.append(
-                        tes.TaskParameter(
-                            name='dockerOutputDirectory',
-                            url=self.output2url(''),
-                            path=i.get('dockerOutputDirectory'),
-                            type='DIRECTORY'
-                        )
+                        {
+                            "name": 'dockerOutputDirectory',
+                            "url": self.output2url(''),
+                            "path": i.get('dockerOutputDirectory'),
+                            "type": 'DIRECTORY'
+                        }
                     )
 
-        create_body = tes.Task(
-            name=self.name,
-            description=self.spec.get('doc', ''),
-            executors=[
-                tes.Executor(
-                    cmd=self.command_line,
-                    image_name=container,
-                    workdir=self.docker_workdir,
-                    stdout=self.output2path(self.stdout),
-                    stderr=self.output2path(self.stderr),
-                    stdin=self.stdin,
-                    environ=self.environment
-                )
+        create_body = {
+            "name": self.name,
+            "description": self.spec.get('doc', ''),
+            "executors": [
+                {
+                    "cmd": self.command_line,
+                    "image_name": container,
+                    "workdir": self.docker_workdir,
+                    "stdout": self.output2path(self.stdout),
+                    "stderr": self.output2path(self.stderr),
+                    "stdin": self.stdin,
+                    "environ": self.environment
+                }
             ],
-            inputs=input_parameters,
-            outputs=output_parameters,
-            resources=tes.Resources(
-                cpu_cores=cpus,
-                ram_gb=ram,
-                size_gb=disk
-            ),
-            tags={'CWLDocumentId': self.spec.get('id')}
-        )
+            "inputs": input_parameters,
+            "outputs": output_parameters,
+            "resources": {
+                "cpu_cores": cpus,
+                "ram_gb": ram,
+                "size_gb": disk
+            },
+            "tags": {'CWLDocumentId': self.spec.get('id')}
+        }
 
-        return create_body
+        return tes.utils.unmarshal(create_body, tes.Task)
 
     def run(self, pull_image=True, rm_container=True, rm_tmpdir=True,
             move_outputs='move', **kwargs):
         # useful for debugging
-        log.debug('[job %s] self.__dict__ from run() ----------------------' % (self.name))
-        log.debug(pformat(self.__dict__))
+        # log.debug('[job %s] self.__dict__ from run() ----------------------' % (self.name))
+        # log.debug(pformat(self.__dict__))
 
         task = self.create_task_msg()
 
