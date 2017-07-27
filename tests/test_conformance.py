@@ -1,4 +1,4 @@
-from __future__ import print_function
+from __future__ import print_function, unicode_literals
 
 import glob
 import os
@@ -33,7 +33,7 @@ class TestConformance(SimpleServerTest):
         )
         with p.stdout, open(testlog, 'ab') as fh:
             for line in iter(p.stdout.readline, b''):
-                print(line.strip("\n"), file=sys.stderr)
+                print(line.decode('utf8').strip("\n"), file=sys.stderr)
                 fh.write(line)
         p.wait()
 

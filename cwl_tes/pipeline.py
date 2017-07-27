@@ -26,7 +26,7 @@ class Pipeline(object):
             final_output.append(out)
 
         if "basedir" not in kwargs:
-            raise WorkflowException("Must provide "basedir" in kwargs")
+            raise WorkflowException("Must provide 'basedir' in kwargs")
 
         output_dirs = set()
         finaloutdir = os.path.abspath(kwargs.get("outdir")) if kwargs.get("outdir") else None

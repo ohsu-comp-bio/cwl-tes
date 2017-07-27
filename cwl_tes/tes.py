@@ -125,7 +125,7 @@ class TESPipelineJob(PipelineJob):
                     gen.write(item["contents"])
             else:
                 loc = item["location"]
-                    
+
             parameter = tes.TaskParameter(
                 name=item["basename"],
                 description="InitialWorkDirRequirement:cwl_input:%s" % (item["basename"]),

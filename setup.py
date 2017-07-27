@@ -2,16 +2,36 @@
 
 from __future__ import print_function
 
+import io
 import os
+import re
 
 from setuptools import setup, find_packages
 
 SETUP_DIR = os.path.dirname(__file__)
 README = os.path.join(SETUP_DIR, "README.md")
 
+
+def read(*names, **kwargs):
+    with io.open(
+        os.path.join(os.path.dirname(__file__), *names),
+        encoding=kwargs.get("encoding", "utf8")
+    ) as fp:
+        return fp.read()
+
+
+def find_version(*file_paths):
+    version_file = read(*file_paths)
+    version_match = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]",
+                              version_file, re.M)
+    if version_match:
+        return version_match.group(1)
+    raise RuntimeError("Unable to find version string.")
+
+
 setup(
     name="cwl-tes",
-    version="0.1.1",
+    version=find_version("cwl_tes", "__init__.py"),
     description="Common workflow language reference implementation backended \
     by a GA4GH Task Execution Service",
     long_description=open(README).read(),
@@ -23,7 +43,8 @@ setup(
     python_requires=">=2.7, <4",
     install_requires=[
         "cwltool==1.0.20170723124118",
-        "py-tes>=0.1.4",
+        "future>=0.16.0",
+        "py-tes>=0.1.5",
         "requests>=2.14.2"
     ],
     entry_points={
@@ -34,5 +55,7 @@ setup(
         "Natural Language :: English",
         "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python :: 2.7",
+        "Programming Language :: Python :: 3.5",
+        "Programming Language :: Python :: 3.6",
     ],
 )
