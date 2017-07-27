@@ -1,4 +1,4 @@
-from __future__ import absolute_import, print_function
+from __future__ import absolute_import, print_function, unicode_literals
 
 import logging
 import os
@@ -9,7 +9,7 @@ from cwltool.errors import WorkflowException
 from cwltool.process import cleanIntermediate, relocateOutputs
 from cwltool.mutation import MutationManager
 
-log = logging.getLogger('tes-backend')
+log = logging.getLogger("tes-backend")
 
 
 class Pipeline(object):
@@ -26,7 +26,7 @@ class Pipeline(object):
             final_output.append(out)
 
         if "basedir" not in kwargs:
-            raise WorkflowException("Must provide 'basedir' in kwargs")
+            raise WorkflowException("Must provide "basedir" in kwargs")
 
         output_dirs = set()
         finaloutdir = os.path.abspath(kwargs.get("outdir")) if kwargs.get("outdir") else None
@@ -65,7 +65,7 @@ class Pipeline(object):
         except WorkflowException as e:
             raise e
         except Exception as e:
-            log.exception('Got workflow error')
+            log.exception("Got workflow error")
             raise WorkflowException(unicode(e))
 
         self.wait()

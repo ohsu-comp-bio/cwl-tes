@@ -1,4 +1,4 @@
-from __future__ import absolute_import, print_function
+from __future__ import absolute_import, print_function, unicode_literals
 
 import sys
 import logging
@@ -7,7 +7,7 @@ import cwltool.main
 
 from cwl_tes.tes import TESPipeline
 
-log = logging.getLogger('tes-backend')
+log = logging.getLogger("tes-backend")
 log.setLevel(logging.DEBUG)
 console = logging.StreamHandler()
 console.setLevel(logging.DEBUG)
@@ -46,5 +46,5 @@ def add_args(parser):
     return parser
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
