@@ -1,3 +1,4 @@
 cwltool==1.0.20170723124118
-requests>=2.14.2
-py-tes>=0.1.3
+future>=0.16.0
+requests>=2.18.2
+py-tes>=0.1.5
