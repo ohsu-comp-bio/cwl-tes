@@ -247,7 +247,15 @@ class TESPipelineJob(PipelineJob):
 
         def callback(operation):
             try:
-                self.outputs = self.collect_outputs(self.outdir)
+                outputs = self.collect_outputs(self.outdir)
+                cleaned_outputs = {}
+                for k, v in outputs.items():
+                    if isinstance(k, bytes):
+                        k = k.decode("utf8")
+                    if isinstance(v, bytes):
+                        v = v.decode("utf8")
+                    cleaned_outputs[k] = v
+                self.outputs = cleaned_outputs
                 self.output_callback(self.outputs, "success")
             except WorkflowException as e:
                 log.error("[job %s] Job error:\n%s" % (self.name, e))
