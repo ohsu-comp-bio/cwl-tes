@@ -8,9 +8,6 @@ import re
 
 from setuptools import setup, find_packages
 
-SETUP_DIR = os.path.dirname(__file__)
-README = os.path.join(SETUP_DIR, "README.md")
-
 
 def read(*names, **kwargs):
     with io.open(
@@ -34,7 +31,6 @@ setup(
     version=find_version("cwl_tes", "__init__.py"),
     description="Common workflow language reference implementation backended \
     by a GA4GH Task Execution Service",
-    long_description=open(README).read(),
     author="Adam Struck",
     author_email="strucka@ohsu.edu",
     url="https://github.com/common-workflow-language/cwl-tes",
