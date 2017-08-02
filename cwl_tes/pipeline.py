@@ -5,6 +5,7 @@ import os
 import tempfile
 import time
 
+from builtins import str
 from cwltool.errors import WorkflowException
 from cwltool.process import cleanIntermediate, relocateOutputs
 from cwltool.mutation import MutationManager
@@ -29,16 +30,24 @@ class Pipeline(object):
             raise WorkflowException("Must provide 'basedir' in kwargs")
 
         output_dirs = set()
-        finaloutdir = os.path.abspath(kwargs.get("outdir")) if kwargs.get("outdir") else None
-        kwargs["outdir"] = tempfile.mkdtemp(prefix=kwargs["tmp_outdir_prefix"]) if kwargs.get(
-            "tmp_outdir_prefix") else tempfile.mkdtemp()
+        if kwargs.get("outdir"):
+            finaloutdir = os.path.abspath(kwargs.get("outdir"))
+        else:
+            finaloutdir = None
+        if kwargs.get("tmp_outdir_prefix"):
+            kwargs["outdir"] = tempfile.mkdtemp(
+                prefix=kwargs["tmp_outdir_prefix"]
+            )
+        else:
+            kwargs["outdir"] = tempfile.mkdtemp()
         output_dirs.add(kwargs["outdir"])
         kwargs["mutation_manager"] = MutationManager()
 
         jobReqs = None
         if "cwl:requirements" in job_order:
             jobReqs = job_order["cwl:requirements"]
-        elif ("cwl:defaults" in tool.metadata and "cwl:requirements" in tool.metadata["cwl:defaults"]):
+        elif ("cwl:defaults" in tool.metadata and
+              "cwl:requirements" in tool.metadata["cwl:defaults"]):
             jobReqs = tool.metadata["cwl:defaults"]["cwl:requirements"]
         if jobReqs:
             for req in jobReqs:
@@ -54,7 +63,7 @@ class Pipeline(object):
         try:
             for runnable in jobs:
                 if runnable:
-                    builder = kwargs.get("builder", None)  # type: Builder
+                    builder = kwargs.get("builder", None)
                     if builder is not None:
                         runnable.builder = builder
                     if runnable.outdir:
@@ -63,10 +72,11 @@ class Pipeline(object):
                 else:
                     time.sleep(1)
         except WorkflowException as e:
+            log.error("Got workflow error")
             raise e
         except Exception as e:
-            log.exception("Got workflow error")
-            raise WorkflowException(unicode(e))
+            log.error("Got workflow error")
+            raise WorkflowException(str(e))
 
         self.wait()
 

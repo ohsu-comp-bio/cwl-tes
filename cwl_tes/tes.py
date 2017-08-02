@@ -128,9 +128,13 @@ class TESPipelineJob(PipelineJob):
 
             parameter = tes.TaskParameter(
                 name=item["basename"],
-                description="InitialWorkDirRequirement:cwl_input:%s" % (item["basename"]),
+                description="InitialWorkDirRequirement:cwl_input:%s" % (
+                    item["basename"]
+                ),
                 url=file_uri(loc),
-                path=self.fs_access.join(self.docker_workdir, item["basename"]),
+                path=self.fs_access.join(
+                    self.docker_workdir, item["basename"]
+                ),
                 type=item["class"].upper()
                 )
             inputs.append(parameter)
@@ -228,21 +232,31 @@ class TESPipelineJob(PipelineJob):
     def run(self, pull_image=True, rm_container=True, rm_tmpdir=True,
             move_outputs="move", **kwargs):
         # useful for debugging
-        # log.debug("[job %s] self.__dict__ from run() ----------------------" % (self.name))
-        # log.debug(pformat(self.__dict__))
+        log.debug(
+            "[job %s] self.__dict__ from run() ----------------------" %
+            (self.name)
+        )
+        log.debug(pformat(self.__dict__))
 
         task = self.create_task_msg()
 
-        log.debug("[job %s] CREATED TASK MSG----------------------" % (self.name))
-        log.debug(pformat(task))
+        log.info(
+            "[job %s] CREATED TASK MSG----------------------" % (self.name)
+        )
+        log.info(pformat(task))
 
         try:
             task_id = self.pipeline.service.create_task(task)
-            log.debug("[job %s] SUBMITTED TASK ----------------------" % (self.name))
-            log.debug("[job %s] task id: %s " % (self.name, task_id))
+            log.info(
+                "[job %s] SUBMITTED TASK ----------------------" % (self.name)
+            )
+            log.info("[job %s] task id: %s " % (self.name, task_id))
             operation = self.pipeline.service.get_task(task_id, "MINIMAL")
         except Exception as e:
-            log.error("[job %s] Failed to submit task to TES service:\n%s" % (self.name, e))
+            log.error(
+                "[job %s] Failed to submit task to TES service:\n%s" %
+                (self.name, e)
+            )
             return WorkflowException(e)
 
         def callback(operation):
@@ -261,12 +275,14 @@ class TESPipelineJob(PipelineJob):
                 log.error("[job %s] Job error:\n%s" % (self.name, e))
                 self.output_callback({}, "permanentFail")
             except Exception as e:
-                log.exception("Exception while running job")
+                log.error("[job %s] Job error:\n%s" % (self.name, e))
                 self.output_callback({}, "permanentFail")
             finally:
                 if self.outputs is not None:
-                    log.debug("[job %s] OUTPUTS ------------------" % (self.name))
-                    log.debug(pformat(self.outputs))
+                    log.info(
+                        "[job %s] OUTPUTS ------------------" % (self.name)
+                    )
+                    log.info(pformat(self.outputs))
                 self.cleanup(rm_tmpdir)
 
         poll = TESPipelinePoll(
@@ -280,18 +296,28 @@ class TESPipelineJob(PipelineJob):
         poll.start()
 
     def cleanup(self, rm_tmpdir):
-        log.debug("[job %s] STARTING CLEAN UP ------------------" % (self.name))
+        log.debug(
+            "[job %s] STARTING CLEAN UP ------------------" % (self.name)
+        )
         if self.stagedir and os.path.exists(self.stagedir):
-            log.debug("[job %s] Removing input staging directory %s", self.name, self.stagedir)
+            log.debug(
+                "[job %s] Removing input staging directory %s" %
+                (self.name, self.stagedir)
+            )
             shutil.rmtree(self.stagedir, True)
 
         if rm_tmpdir:
-            log.debug("[job %s] Removing temporary directory %s", self.name, self.tmpdir)
+            log.debug(
+                "[job %s] Removing temporary directory %s" %
+                (self.name, self.tmpdir)
+            )
             shutil.rmtree(self.tmpdir, True)
 
     def output2url(self, path):
         if path is not None:
-            return file_uri(self.fs_access.join(self.outdir, os.path.basename(path)))
+            return file_uri(
+                self.fs_access.join(self.outdir, os.path.basename(path))
+            )
         return None
 
     def output2path(self, path):
@@ -314,10 +340,19 @@ class TESPipelinePoll(PollThread):
     def is_done(self, operation):
         terminal_states = ["COMPLETE", "CANCELED", "ERROR", "SYSTEM_ERROR"]
         if operation.state in terminal_states:
-            log.debug(
-                "[job %s] JOB %s ------------------" %
+            log.info(
+                "[job %s] FINAL JOB STATE: %s ------------------" %
                 (self.name, operation.state)
             )
+            if operation.state != "COMPLETE":
+                log.error(
+                    "[job %s] Task ID: %s\nLogs: %s" %
+                    (
+                        self.name,
+                        self.operation.id,
+                        self.service.get_task(self.operation.id, "FULL").logs
+                    )
+                )
             return True
         return False
 

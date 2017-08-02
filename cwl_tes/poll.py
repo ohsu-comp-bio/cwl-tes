@@ -39,12 +39,12 @@ class PollThread(threading.Thread):
             try:
                 self.operation = self.poll()
             except Exception as e:
-                log.debug("[job %s] POLLING ERROR %s" % (self.name, e))
+                log.error("[job %s] POLLING ERROR %s" % (self.name, e))
                 if self.poll_retries > 0:
                     self.poll_retries -= 1
                     continue
                 else:
-                    log.debug("[job %s] MAX POLLING RETRIES EXCEEDED" %
+                    log.error("[job %s] MAX POLLING RETRIES EXCEEDED" %
                               (self.name))
                     break
 
