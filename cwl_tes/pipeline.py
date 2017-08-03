@@ -30,16 +30,19 @@ class Pipeline(object):
             raise WorkflowException("Must provide 'basedir' in kwargs")
 
         output_dirs = set()
+
         if kwargs.get("outdir"):
             finaloutdir = os.path.abspath(kwargs.get("outdir"))
         else:
             finaloutdir = None
+
         if kwargs.get("tmp_outdir_prefix"):
             kwargs["outdir"] = tempfile.mkdtemp(
                 prefix=kwargs["tmp_outdir_prefix"]
             )
         else:
             kwargs["outdir"] = tempfile.mkdtemp()
+
         output_dirs.add(kwargs["outdir"])
         kwargs["mutation_manager"] = MutationManager()
 
@@ -70,14 +73,19 @@ class Pipeline(object):
                         output_dirs.add(runnable.outdir)
                     runnable.run(**kwargs)
                 else:
+                    # log.error(
+                    #     "Workflow cannot make any more progress"
+                    # )
+                    # break
                     time.sleep(1)
+
         except WorkflowException as e:
-            log.error("Got workflow error")
             raise e
         except Exception as e:
-            log.error("Got workflow error")
+            log.error("Got exception")
             raise WorkflowException(str(e))
 
+        # wait for all processes to finish
         self.wait()
 
         if final_output and final_output[0] and finaloutdir:
@@ -104,8 +112,11 @@ class Pipeline(object):
         self.threads.append(thread)
 
     def wait(self):
-        for i in self.threads:
-            i.join()
+        while True:
+            if all([not t.is_alive() for t in self.threads]):
+                break
+        for t in self.threads:
+            t.join()
 
 
 class PipelineJob(object):
@@ -124,8 +135,10 @@ class PipelineJob(object):
         reqs = self.spec.get("requirements", []) + self.spec.get("hints", [])
         for i in reqs:
             if i.get("class", "NA") == "DockerRequirement":
-                container = i.get("dockerPull",
-                                  i.get("dockerImageId", default))
+                container = i.get(
+                    "dockerPull",
+                    i.get("dockerImageId", default)
+                )
         return container
 
     def run(self, pull_image=True, rm_container=True, rm_tmpdir=True,

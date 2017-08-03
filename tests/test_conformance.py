@@ -17,13 +17,17 @@ class TestConformance(SimpleServerTest):
         ctest_def = os.path.join(cwl_testdir, "conformance_test_v1.0.yaml")
         tool_entry = os.path.join(self.rootprojectdir, "cwl-tes")
 
-        cmd = ["cwltest", "--test", ctest_def, "--basedir", self.tmpdir,
-               "--tool", tool_entry, "-j", "20"]
+        cmd = [
+            "cwltest", "--test", ctest_def, "--basedir", self.tmpdir,
+            "--tool", tool_entry, "-j", "20", "--",
+            "--tes=http://localhost:8000"
+        ]
 
         testlog = os.path.join(
             self.tmpdir,
             "conformance_test_results_%s.txt" % (time.strftime("%m%d%Y"))
         )
+        print("RUNNNING:", " ".join(cmd))
         p = popen(
             cmd,
             cwd=os.path.join(self.testdir, "schemas/v1.0"),

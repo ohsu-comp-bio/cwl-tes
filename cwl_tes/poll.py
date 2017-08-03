@@ -1,19 +1,15 @@
 from __future__ import absolute_import, print_function, unicode_literals
 
-import time
 import threading
-import logging
-from pprint import pformat
-
-log = logging.getLogger("tes-backend")
 
 
 class PollThread(threading.Thread):
 
     def __init__(self, operation, poll_interval=1, poll_retries=10):
         super(PollThread, self).__init__()
-        self.name = "NA"
+        self.daemon = True
         self.operation = operation
+        self.id = operation.id
         self.poll_interval = poll_interval
         self.poll_retries = poll_retries
 
@@ -27,25 +23,4 @@ class PollThread(threading.Thread):
         raise Exception("PollThread.complete(operation) not implemented")
 
     def run(self):
-        while not self.is_done(self.operation):
-            time.sleep(self.poll_interval)
-            # slow down polling over time till it hits a max
-            # if self.poll_interval < 30:
-            #     self.poll_interval += 1
-            log.debug(
-                "[job %s] POLLING %s" %
-                (self.name, pformat(self.operation.id))
-            )
-            try:
-                self.operation = self.poll()
-            except Exception as e:
-                log.error("[job %s] POLLING ERROR %s" % (self.name, e))
-                if self.poll_retries > 0:
-                    self.poll_retries -= 1
-                    continue
-                else:
-                    log.error("[job %s] MAX POLLING RETRIES EXCEEDED" %
-                              (self.name))
-                    break
-
-        self.complete(self.operation)
+        raise Exception("PollThread.run() not implemented")

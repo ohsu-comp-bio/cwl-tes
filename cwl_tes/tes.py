@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import tes
+import time
 
 from cwltool.draft2tool import CommandLineTool
 from cwltool.errors import WorkflowException, UnsupportedRequirement
@@ -233,7 +234,7 @@ class TESPipelineJob(PipelineJob):
             move_outputs="move", **kwargs):
         # useful for debugging
         log.debug(
-            "[job %s] self.__dict__ from run() ----------------------" %
+            "[job %s] self.__dict__ in run() ----------------------" %
             (self.name)
         )
         log.debug(pformat(self.__dict__))
@@ -241,14 +242,16 @@ class TESPipelineJob(PipelineJob):
         task = self.create_task_msg()
 
         log.info(
-            "[job %s] CREATED TASK MSG----------------------" % (self.name)
+            "[job %s] CREATED TASK MSG----------------------" %
+            (self.name)
         )
         log.info(pformat(task))
 
         try:
             task_id = self.pipeline.service.create_task(task)
             log.info(
-                "[job %s] SUBMITTED TASK ----------------------" % (self.name)
+                "[job %s] SUBMITTED TASK ----------------------" %
+                (self.name)
             )
             log.info("[job %s] task id: %s " % (self.name, task_id))
             operation = self.pipeline.service.get_task(task_id, "MINIMAL")
@@ -272,15 +275,16 @@ class TESPipelineJob(PipelineJob):
                 self.outputs = cleaned_outputs
                 self.output_callback(self.outputs, "success")
             except WorkflowException as e:
-                log.error("[job %s] Job error:\n%s" % (self.name, e))
+                log.error("[job %s] job error:\n%s" % (self.name, e))
                 self.output_callback({}, "permanentFail")
             except Exception as e:
-                log.error("[job %s] Job error:\n%s" % (self.name, e))
+                log.error("[job %s] job error:\n%s" % (self.name, e))
                 self.output_callback({}, "permanentFail")
             finally:
                 if self.outputs is not None:
                     log.info(
-                        "[job %s] OUTPUTS ------------------" % (self.name)
+                        "[job %s] OUTPUTS ------------------" %
+                        (self.name)
                     )
                     log.info(pformat(self.outputs))
                 self.cleanup(rm_tmpdir)
@@ -297,7 +301,8 @@ class TESPipelineJob(PipelineJob):
 
     def cleanup(self, rm_tmpdir):
         log.debug(
-            "[job %s] STARTING CLEAN UP ------------------" % (self.name)
+            "[job %s] STARTING CLEAN UP ------------------" %
+            (self.name)
         )
         if self.stagedir and os.path.exists(self.stagedir):
             log.debug(
@@ -334,8 +339,32 @@ class TESPipelinePoll(PollThread):
         self.service = service
         self.callback = callback
 
+    def run(self):
+        while not self.is_done(self.operation):
+            time.sleep(self.poll_interval)
+            # slow down polling over time till it hits a max
+            # if self.poll_interval < 30:
+            #     self.poll_interval += 1
+            log.debug(
+                "[job %s] POLLING %s" %
+                (self.name, pformat(self.id))
+            )
+            try:
+                self.operation = self.poll()
+            except Exception as e:
+                log.error("[job %s] POLLING ERROR %s" % (self.name, e))
+                if self.poll_retries > 0:
+                    self.poll_retries -= 1
+                    continue
+                else:
+                    log.error("[job %s] MAX POLLING RETRIES EXCEEDED" %
+                              (self.name))
+                    break
+
+        self.complete(self.operation)
+
     def poll(self):
-        return self.service.get_task(self.operation.id, "MINIMAL")
+        return self.service.get_task(self.id, "MINIMAL")
 
     def is_done(self, operation):
         terminal_states = ["COMPLETE", "CANCELED", "ERROR", "SYSTEM_ERROR"]
@@ -346,12 +375,15 @@ class TESPipelinePoll(PollThread):
             )
             if operation.state != "COMPLETE":
                 log.error(
-                    "[job %s] Task ID: %s\nLogs: %s" %
+                    "[job %s] task id: %s" % (self.name, self.id)
+                )
+                log.error(
+                    "[job %s] logs: %s" %
                     (
                         self.name,
-                        self.operation.id,
-                        self.service.get_task(self.operation.id, "FULL").logs
+                        self.service.get_task(self.id, "FULL").logs
                     )
+
                 )
             return True
         return False
