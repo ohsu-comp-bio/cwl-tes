@@ -192,7 +192,9 @@ class TESPipelineJob(PipelineJob):
             if i.get("class", "NA") == "ResourceRequirement":
                 cpus = i.get("coresMin", i.get("coresMax", None))
                 ram = i.get("ramMin", i.get("ramMax", None))
+                ram = ram / 953.674 if ram is not None else None
                 disk = i.get("outdirMin", i.get("outdirMax", None))
+                disk = disk / 953.674 if disk is not None else None
             elif i.get("class", "NA") == "DockerRequirement":
                 if i.get("dockerOutputDirectory", None) is not None:
                     output_parameters.append(
