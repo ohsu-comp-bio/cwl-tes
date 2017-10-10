@@ -2,39 +2,122 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 import logging
 import os
+import tempfile
 import shutil
 import tes
+import threading
 import time
 
+from builtins import str
 from cwltool.draft2tool import CommandLineTool
 from cwltool.errors import WorkflowException, UnsupportedRequirement
+from cwltool.mutation import MutationManager
 from cwltool.pathmapper import PathMapper
+from cwltool.process import cleanIntermediate, relocateOutputs
 from cwltool.stdfsaccess import StdFsAccess
 from cwltool.workflow import defaultMakeTool
 from pprint import pformat
 from schema_salad.ref_resolver import file_uri
 
-from cwl_tes.pipeline import Pipeline, PipelineJob
-from cwl_tes.poll import PollThread
-
-
 log = logging.getLogger("tes-backend")
 
 
-class TESPipeline(Pipeline):
+class TESWorkflow(object):
 
     def __init__(self, url, kwargs):
-        super(TESPipeline, self).__init__()
+        self.threads = []
         self.kwargs = kwargs
-        self.service = tes.HTTPClient(url)
+        self.client = tes.HTTPClient(url)
         if kwargs.get("basedir") is not None:
             self.basedir = kwargs.get("basedir")
         else:
             self.basedir = os.getcwd()
         self.fs_access = StdFsAccess(self.basedir)
 
+    def executor(self, tool, job_order, **kwargs):
+        final_output = []
+        final_status = []
+
+        def output_callback(out, processStatus):
+            final_status.append(processStatus)
+            final_output.append(out)
+
+        if "basedir" not in kwargs:
+            raise WorkflowException("Must provide 'basedir' in kwargs")
+
+        output_dirs = set()
+
+        if kwargs.get("outdir"):
+            finaloutdir = os.path.abspath(kwargs.get("outdir"))
+        else:
+            finaloutdir = None
+
+        if kwargs.get("tmp_outdir_prefix"):
+            kwargs["outdir"] = tempfile.mkdtemp(
+                prefix=kwargs["tmp_outdir_prefix"]
+            )
+        else:
+            kwargs["outdir"] = tempfile.mkdtemp()
+
+        output_dirs.add(kwargs["outdir"])
+        kwargs["mutation_manager"] = MutationManager()
+
+        jobReqs = None
+        if "cwl:requirements" in job_order:
+            jobReqs = job_order["cwl:requirements"]
+        elif ("cwl:defaults" in tool.metadata and
+              "cwl:requirements" in tool.metadata["cwl:defaults"]):
+            jobReqs = tool.metadata["cwl:defaults"]["cwl:requirements"]
+        if jobReqs:
+            for req in jobReqs:
+                tool.requirements.append(req)
+
+        if kwargs.get("default_container"):
+            tool.requirements.insert(0, {
+                "class": "DockerRequirement",
+                "dockerPull": kwargs["default_container"]
+            })
+
+        jobs = tool.job(job_order, output_callback, **kwargs)
+        try:
+            for runnable in jobs:
+                if runnable:
+                    builder = kwargs.get("builder", None)
+                    if builder is not None:
+                        runnable.builder = builder
+                    if runnable.outdir:
+                        output_dirs.add(runnable.outdir)
+                    runnable.run(**kwargs)
+                else:
+                    time.sleep(1)
+
+        except WorkflowException as e:
+            raise e
+        except Exception as e:
+            log.error("Got exception")
+            raise WorkflowException(str(e))
+
+        # wait for all processes to finish
+        self.wait()
+
+        if final_output and final_output[0] and finaloutdir:
+            final_output[0] = relocateOutputs(
+                final_output[0], finaloutdir,
+                output_dirs, kwargs.get("move_outputs"),
+                kwargs["make_fs_access"](""))
+
+        if kwargs.get("rm_tmpdir"):
+            cleanIntermediate(output_dirs)
+
+        if final_output and final_status:
+            return (final_output[0], final_status[0])
+        else:
+            return (None, "permanentFail")
+
     def make_exec_tool(self, spec, **kwargs):
-        return TESPipelineTool(spec, self, fs_access=self.fs_access, **kwargs)
+        return TESCommandLineTool(
+            spec, self, fs_access=self.fs_access, **kwargs
+        )
 
     def make_tool(self, spec, **kwargs):
         if "class" in spec and spec["class"] == "CommandLineTool":
@@ -42,42 +125,69 @@ class TESPipeline(Pipeline):
         else:
             return defaultMakeTool(spec, **kwargs)
 
+    def add_thread(self, thread):
+        self.threads.append(thread)
 
-class TESPipelineTool(CommandLineTool):
+    def wait(self):
+        while True:
+            if all([not t.is_alive() for t in self.threads]):
+                break
+        for t in self.threads:
+            t.join()
 
-    def __init__(self, spec, pipeline, fs_access, **kwargs):
-        super(TESPipelineTool, self).__init__(spec, **kwargs)
+
+class TESCommandLineTool(CommandLineTool):
+
+    def __init__(self, spec, tes_workflow, fs_access, **kwargs):
+        super(TESCommandLineTool, self).__init__(spec, **kwargs)
         self.spec = spec
-        self.pipeline = pipeline
+        self.tes_workflow = tes_workflow
         self.fs_access = fs_access
 
-    def makeJobRunner(self, use_container=True):
-        return TESPipelineJob(self.spec, self.pipeline, self.fs_access)
+    def makeJobRunner(self, use_container=True, **kwargs):
+        return TESTask(self.spec, self.tes_workflow, self.fs_access)
 
     def makePathMapper(self, reffiles, stagedir, **kwargs):
         return PathMapper(reffiles, kwargs["basedir"], stagedir)
 
 
-class TESPipelineJob(PipelineJob):
+class TESTask(object):
 
-    def __init__(self, spec, pipeline, fs_access):
-        super(TESPipelineJob, self).__init__(spec, pipeline)
+    def __init__(self, spec, tes_workflow, fs_access):
+        self.spec = spec
+        self.tes_workflow = tes_workflow
+        self.fs_access = fs_access
+
         self.outputs = None
         self.docker_workdir = "/var/spool/cwl"
-        self.fs_access = fs_access
         self.inplace_update = False
+
+    def find_docker_requirement(self):
+        default = "python:2.7"
+        container = default
+        if self.tes_workflow.kwargs["default_container"]:
+            container = self.tes_workflow.kwargs["default_container"]
+
+        reqs = self.spec.get("requirements", []) + self.spec.get("hints", [])
+        for i in reqs:
+            if i.get("class", "NA") == "DockerRequirement":
+                container = i.get(
+                    "dockerPull",
+                    i.get("dockerImageId", default)
+                )
+        return container
 
     def create_input_parameter(self, name, d):
         if "contents" in d:
-            return tes.TaskParameter(
+            return tes.Input(
                 name=name,
                 description="cwl_input:%s" % (name),
                 path=d["path"],
-                contents=d["contents"],
+                content=d["contents"],
                 type=d["class"].upper()
             )
         else:
-            return tes.TaskParameter(
+            return tes.Input(
                 name=name,
                 description="cwl_input:%s" % (name),
                 url=d["location"],
@@ -127,7 +237,7 @@ class TESPipelineJob(PipelineJob):
             else:
                 loc = item["location"]
 
-            parameter = tes.TaskParameter(
+            parameter = tes.Input(
                 name=item["basename"],
                 description="InitialWorkDirRequirement:cwl_input:%s" % (
                     item["basename"]
@@ -159,7 +269,7 @@ class TESPipelineJob(PipelineJob):
         output_parameters = []
 
         if self.stdout is not None:
-            parameter = tes.TaskParameter(
+            parameter = tes.Output(
                 name="stdout",
                 url=self.output2url(self.stdout),
                 path=self.output2path(self.stdout)
@@ -167,7 +277,7 @@ class TESPipelineJob(PipelineJob):
             output_parameters.append(parameter)
 
         if self.stderr is not None:
-            parameter = tes.TaskParameter(
+            parameter = tes.Output(
                name="stderr",
                url=self.output2url(self.stderr),
                path=self.output2path(self.stderr)
@@ -175,7 +285,7 @@ class TESPipelineJob(PipelineJob):
             output_parameters.append(parameter)
 
         output_parameters.append(
-            tes.TaskParameter(
+            tes.Output(
                 name="workdir",
                 url=self.output2url(""),
                 path=self.docker_workdir,
@@ -198,7 +308,7 @@ class TESPipelineJob(PipelineJob):
             elif i.get("class", "NA") == "DockerRequirement":
                 if i.get("dockerOutputDirectory", None) is not None:
                     output_parameters.append(
-                        tes.TaskParameter(
+                        tes.Output(
                             name="dockerOutputDirectory",
                             url=self.output2url(""),
                             path=i.get("dockerOutputDirectory"),
@@ -211,13 +321,13 @@ class TESPipelineJob(PipelineJob):
             description=self.spec.get("doc", ""),
             executors=[
                 tes.Executor(
-                    cmd=self.command_line,
-                    image_name=container,
+                    command=self.command_line,
+                    image=container,
                     workdir=self.docker_workdir,
                     stdout=self.output2path(self.stdout),
                     stderr=self.output2path(self.stderr),
                     stdin=self.stdin,
-                    environ=self.environment
+                    env=self.environment
                 )
             ],
             inputs=input_parameters,
@@ -225,7 +335,7 @@ class TESPipelineJob(PipelineJob):
             resources=tes.Resources(
                 cpu_cores=cpus,
                 ram_gb=ram,
-                size_gb=disk
+                disk_gb=disk
             ),
             tags={"CWLDocumentId": self.spec.get("id")}
         )
@@ -250,13 +360,12 @@ class TESPipelineJob(PipelineJob):
         log.info(pformat(task))
 
         try:
-            task_id = self.pipeline.service.create_task(task)
+            task_id = self.tes_workflow.client.create_task(task)
             log.info(
                 "[job %s] SUBMITTED TASK ----------------------" %
                 (self.name)
             )
             log.info("[job %s] task id: %s " % (self.name, task_id))
-            operation = self.pipeline.service.get_task(task_id, "MINIMAL")
         except Exception as e:
             log.error(
                 "[job %s] Failed to submit task to TES service:\n%s" %
@@ -264,7 +373,7 @@ class TESPipelineJob(PipelineJob):
             )
             return WorkflowException(e)
 
-        def callback(operation):
+        def callback():
             try:
                 outputs = self.collect_outputs(self.outdir)
                 cleaned_outputs = {}
@@ -291,14 +400,14 @@ class TESPipelineJob(PipelineJob):
                     log.info(pformat(self.outputs))
                 self.cleanup(rm_tmpdir)
 
-        poll = TESPipelinePoll(
+        poll = TESTaskPollThread(
             jobname=self.name,
-            service=self.pipeline.service,
-            operation=operation,
+            taskID=task_id,
+            client=self.tes_workflow.client,
             callback=callback
         )
 
-        self.pipeline.add_thread(poll)
+        self.tes_workflow.add_thread(poll)
         poll.start()
 
     def cleanup(self, rm_tmpdir):
@@ -333,16 +442,22 @@ class TESPipelineJob(PipelineJob):
         return None
 
 
-class TESPipelinePoll(PollThread):
+class TESTaskPollThread(threading.Thread):
 
-    def __init__(self, jobname, service, operation, callback):
-        super(TESPipelinePoll, self).__init__(operation)
+    def __init__(self, jobname, taskID, client, callback, poll_interval=1,
+                 poll_retries=10):
+        super(TESTaskPollThread, self).__init__()
+        self.daemon = True
         self.name = jobname
-        self.service = service
+        self.id = taskID
+        self.state = "UNKNOWN"
+        self.client = client
         self.callback = callback
+        self.poll_interval = poll_interval
+        self.poll_retries = poll_retries
 
     def run(self):
-        while not self.is_done(self.operation):
+        while not self.is_done(self.state):
             time.sleep(self.poll_interval)
             # slow down polling over time till it hits a max
             # if self.poll_interval < 30:
@@ -352,7 +467,7 @@ class TESPipelinePoll(PollThread):
                 (self.name, pformat(self.id))
             )
             try:
-                self.operation = self.poll()
+                self.state = self.poll()
             except Exception as e:
                 log.error("[job %s] POLLING ERROR %s" % (self.name, e))
                 if self.poll_retries > 0:
@@ -363,19 +478,21 @@ class TESPipelinePoll(PollThread):
                               (self.name))
                     break
 
-        self.complete(self.operation)
+        self.complete()
 
     def poll(self):
-        return self.service.get_task(self.id, "MINIMAL")
+        task = self.client.get_task(self.id, "MINIMAL")
+        return task.state
 
-    def is_done(self, operation):
-        terminal_states = ["COMPLETE", "CANCELED", "ERROR", "SYSTEM_ERROR"]
-        if operation.state in terminal_states:
+    def is_done(self, state):
+        terminal_states = ["COMPLETE", "CANCELED", "EXECUTOR_ERROR",
+                           "SYSTEM_ERROR"]
+        if state in terminal_states:
             log.info(
                 "[job %s] FINAL JOB STATE: %s ------------------" %
-                (self.name, operation.state)
+                (self.name, state)
             )
-            if operation.state != "COMPLETE":
+            if state != "COMPLETE":
                 log.error(
                     "[job %s] task id: %s" % (self.name, self.id)
                 )
@@ -383,12 +500,12 @@ class TESPipelinePoll(PollThread):
                     "[job %s] logs: %s" %
                     (
                         self.name,
-                        self.service.get_task(self.id, "FULL").logs
+                        self.client.get_task(self.id, "FULL").logs
                     )
 
                 )
             return True
         return False
 
-    def complete(self, operation):
-        self.callback(operation)
+    def complete(self):
+        self.callback()
