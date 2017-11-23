@@ -5,12 +5,12 @@
 
 ___cwl-tes___ submits your tasks to a TES server. Task submission is parallelized when possible.
 
-[Funnel](https://ohsu-comp-bio.github.io/funnel) is an implementation of the [GA4GH task execution API](https://github.com/ga4gh/task-execution-schemas). It runs your dockerized tasks on slurm, htcondor, google compute engine, etc.
+[Funnel](https://ohsu-comp-bio.github.io/funnel) is an implementation of the [GA4GH task execution API](https://github.com/ga4gh/task-execution-schemas). It runs your dockerized tasks on slurm, htcondor, google compute engine, aws batch, etc.
 
 
 ## Requirements
 
-* Python 2.7
+* Python 2.7 / 3.5 / 3.6
 
 * [Docker](https://docs.docker.com/)
 
@@ -21,7 +21,7 @@ ___cwl-tes___ submits your tasks to a TES server. Task submission is parallelize
 * Start the task server
 
 ```
-funnel server
+funnel server run
 ```
 
 * Run your CWL tool/workflow
@@ -32,7 +32,17 @@ cwl-tes --tes http://localhost:8000 tests/hashsplitter-workflow.cwl.yml --input 
 
 ## Install
 
-To install from source:
+I strongly reccommend using a [virutalenv](https://virtualenv.pypa.io/en/stable/#) for installation since _cwl-tes_
+depends on a specific version of _cwltool_. 
+
+Install from pip:
+
+```
+pip install cwl-tes
+```
+
+
+Install from source:
 
 ```
 python setup.py install
@@ -44,7 +54,7 @@ python setup.py install
 To start a funnel server instance automatically and run all of the conformance tests:
 
 ```
-nosetests -w ./tests
+python -m nose ./tests
 ```
 
 
@@ -58,8 +68,14 @@ funnel server --config /path/to/config.yaml
 
 Make sure that TMPDIR is specified in the AllowedDirs of your Local storage configuration.
 
-Run the tests.
+To run all the tests:
 
 ```
 ./tests/run_conformance.sh
+```
+
+To run a specifc test:
+
+```
+./tests/run_conformance.sh 10
 ```
