@@ -6,7 +6,7 @@ import signal
 import sys
 import logging
 
-from cwl_tes.tes import TESPipeline
+from cwl_tes.tes import TESWorkflow
 from cwl_tes.__init__ import __version__
 
 
@@ -71,7 +71,7 @@ def main(args=None):
     if not parsed_args.rm_container:
         log.warning("arg: 'leave_container' has no effect in cwl-tes")
 
-    pipeline = TESPipeline(parsed_args.tes, vars(parsed_args))
+    tes_workflow = TESWorkflow(parsed_args.tes, vars(parsed_args))
 
     # setup signal handler
     def signal_handler(*args):
@@ -83,15 +83,15 @@ def main(args=None):
         )
         log.warning(
             "remote TES processes %s may keep running" %
-            ([t.id for t in pipeline.threads])
+            ([t.id for t in tes_workflow.threads])
         )
         sys.exit(1)
     signal.signal(signal.SIGINT, signal_handler)
 
     return cwltool.main.main(
         args=parsed_args,
-        executor=pipeline.executor,
-        makeTool=pipeline.make_tool,
+        executor=tes_workflow.executor,
+        makeTool=tes_workflow.make_tool,
         versionfunc=versionstring,
         logger_handler=console
     )

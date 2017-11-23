@@ -91,39 +91,43 @@ class SimpleServerTest(unittest.TestCase):
 
         # Build server config file (YAML)
         rate = config_seconds(0.05)
-        configFile = temp_config(dir=self.tmpdir, config={
-            "HostName": "localhost",
-            "HTTPPort": "8000",
-            "RPCPort": "9090",
-            "DBPath": db_path,
-            "WorkDir": funnel_work_dir,
-            "Storage": {
-                "Local": {
-                    "AllowedDirs": [self.testdir]
-                }
-            },
-            "Logger": {
-                "Level": "debug",
-                "OutputFile": logFile,
-            },
-            "Worker": {
-                "WorkDir": funnel_work_dir,
-                "Logger": {
-                    "Level": "debug",
-                    "OutputFile": logFile,
+        configFile = temp_config(
+            dir=self.tmpdir,
+            config={
+                "Server": {
+                    "HostName": "localhost",
+                    "HTTPPort": "8000",
+                    "RPCPort": "9090",
+                    "Database": "boltdb",
+                    "Databases": {
+                        "BoltDB": {
+                            "Path": db_path
+                        }
+                    },
+                    "Logger": {
+                        "Level": "debug",
+                        "OutputFile": logFile
+                    }
                 },
-                "Timeout": -1,
-                "StatusPollRate": rate,
-                "LogUpdateRate": rate,
-                "NewJobPollRate": rate,
-                "UpdateRate": rate,
-                "TrackerRate": rate
-            },
-            "ScheduleRate": rate,
-        })
+                "Backend": "local",
+                "Worker": {
+                    "WorkDir": funnel_work_dir,
+                    "Logger": {
+                        "Level": "debug",
+                        "OutputFile": logFile
+                    },
+                    "Storage": {
+                        "Local": {
+                            "AllowedDirs": [self.testdir]
+                        }
+                    },
+                    "UpdateRate": rate
+                }
+            }
+        )
 
         # Start server
-        cmd = ["funnel", "server", "--config", configFile.name]
+        cmd = ["funnel", "server", "run", "--config", configFile.name]
         logging.info("Running %s" % (" ".join(cmd)))
         self.task_server = popen(cmd)
         signal.signal(signal.SIGINT, self.cleanup)
