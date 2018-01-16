@@ -54,8 +54,14 @@ def config_seconds(sec):
     return int(sec * 1000000000)
 
 
-class SimpleServerTest(unittest.TestCase):
+def check_version(cmd, version_str):
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         universal_newlines=True)
+    stdout, stderr = p.communicate()
+    return version_str in stdout
 
+
+class SimpleServerTest(unittest.TestCase):
     def setUp(self):
         self.tmpdir = None
         self.task_server = None
@@ -66,21 +72,21 @@ class SimpleServerTest(unittest.TestCase):
                 "-bash: funnel: command not found\n",
                 "see https://ohsu-comp-bio.github.io/funnel/install/",
                 "for instuctions on how to install",
-                file=sys.stdout
-            )
+                file=sys.stdout)
             raise RuntimeError
 
-        self.rootprojectdir = os.path.dirname(os.path.dirname(
-            os.path.realpath(__file__)
-        ))
+        if not check_version(["funnel", "version"], "version: 0.5.0"):
+            raise RuntimeError("expected Funnel version 0.5.0")
+
+        self.rootprojectdir = os.path.dirname(
+            os.path.dirname(os.path.realpath(__file__)))
 
         self.testdir = os.path.join(self.rootprojectdir, "tests")
         if not os.path.exists(os.path.join(self.testdir, "test_tmp")):
             os.mkdir(os.path.join(self.testdir, "test_tmp"))
         self.tmpdir = tempfile.mkdtemp(
             dir=os.path.join(self.testdir, "test_tmp"),
-            prefix="conformance_test_v1.0_"
-        )
+            prefix="conformance_test_v1.0_")
         os.environ['TMPDIR'] = self.tmpdir
 
         f, db_path = tempfile.mkstemp(dir=self.tmpdir, prefix="tes_task_db.")
@@ -94,37 +100,29 @@ class SimpleServerTest(unittest.TestCase):
         configFile = temp_config(
             dir=self.tmpdir,
             config={
+                "Compute": "local",
+                "Database": "boltdb",
+                "EventWriters": ["log"],
+                "BoltDB": {
+                    "Path": db_path
+                },
                 "Server": {
                     "HostName": "localhost",
                     "HTTPPort": "8000",
-                    "RPCPort": "9090",
-                    "Database": "boltdb",
-                    "Databases": {
-                        "BoltDB": {
-                            "Path": db_path
-                        }
-                    },
-                    "Logger": {
-                        "Level": "debug",
-                        "OutputFile": logFile
-                    }
+                    "RPCPort": "9090"
                 },
-                "Backend": "local",
                 "Worker": {
                     "WorkDir": funnel_work_dir,
-                    "Logger": {
-                        "Level": "debug",
-                        "OutputFile": logFile
-                    },
-                    "Storage": {
-                        "Local": {
-                            "AllowedDirs": [self.testdir]
-                        }
-                    },
                     "UpdateRate": rate
-                }
-            }
-        )
+                },
+                "LocalStorage": {
+                    "AllowedDirs": [self.testdir]
+                },
+                "Logger": {
+                    "Level": "info",
+                    "OutputFile": logFile
+                },
+            })
 
         # Start server
         cmd = ["funnel", "server", "run", "--config", configFile.name]
