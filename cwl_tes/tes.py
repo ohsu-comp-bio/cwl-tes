@@ -2,18 +2,13 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 import logging
 import os
-import tempfile
+import random
 import shutil
 import tes
-import threading
 import time
 
-from builtins import str
-from cwltool.draft2tool import CommandLineTool
+from cwltool.command_line_tool import CommandLineTool
 from cwltool.errors import WorkflowException, UnsupportedRequirement
-from cwltool.mutation import MutationManager
-from cwltool.pathmapper import PathMapper
-from cwltool.process import cleanIntermediate, relocateOutputs
 from cwltool.stdfsaccess import StdFsAccess
 from cwltool.workflow import defaultMakeTool
 from pprint import pformat
@@ -22,151 +17,48 @@ from schema_salad.ref_resolver import file_uri
 log = logging.getLogger("tes-backend")
 
 
-class TESWorkflow(object):
+def make_tes_tool(spec, **kwargs):
+    if "class" in spec and spec["class"] == "CommandLineTool":
+        return TESCommandLineTool(spec, **kwargs)
+    else:
+        return defaultMakeTool(spec, **kwargs)
 
-    def __init__(self, url, kwargs):
-        self.threads = []
+
+class TESCommandLineTool(CommandLineTool):
+
+    def __init__(self, spec, **kwargs):
+        super(TESCommandLineTool, self).__init__(spec, **kwargs)
+        self.spec = spec
+
+    def makeJobRunner(self, use_container=True, **kwargs):
+        return TESTask(self.spec, **kwargs)
+
+
+class TESTask(object):
+
+    def __init__(self, spec, **kwargs):
+        self.spec = spec
         self.kwargs = kwargs
-        self.client = tes.HTTPClient(url)
+        self.outputs = None
+        self.docker_workdir = "/var/spool/cwl"
+        self.inplace_update = False
         if kwargs.get("basedir") is not None:
             self.basedir = kwargs.get("basedir")
         else:
             self.basedir = os.getcwd()
         self.fs_access = StdFsAccess(self.basedir)
 
-    def executor(self, tool, job_order, **kwargs):
-        final_output = []
-        final_status = []
-
-        def output_callback(out, processStatus):
-            final_status.append(processStatus)
-            final_output.append(out)
-
-        if "basedir" not in kwargs:
-            raise WorkflowException("Must provide 'basedir' in kwargs")
-
-        output_dirs = set()
-
-        if kwargs.get("outdir"):
-            finaloutdir = os.path.abspath(kwargs.get("outdir"))
-        else:
-            finaloutdir = None
-
-        if kwargs.get("tmp_outdir_prefix"):
-            kwargs["outdir"] = tempfile.mkdtemp(
-                prefix=kwargs["tmp_outdir_prefix"]
-            )
-        else:
-            kwargs["outdir"] = tempfile.mkdtemp()
-
-        output_dirs.add(kwargs["outdir"])
-        kwargs["mutation_manager"] = MutationManager()
-
-        jobReqs = None
-        if "cwl:requirements" in job_order:
-            jobReqs = job_order["cwl:requirements"]
-        elif ("cwl:defaults" in tool.metadata and
-              "cwl:requirements" in tool.metadata["cwl:defaults"]):
-            jobReqs = tool.metadata["cwl:defaults"]["cwl:requirements"]
-        if jobReqs:
-            for req in jobReqs:
-                tool.requirements.append(req)
-
-        if kwargs.get("default_container"):
-            tool.requirements.insert(0, {
-                "class": "DockerRequirement",
-                "dockerPull": kwargs["default_container"]
-            })
-
-        jobs = tool.job(job_order, output_callback, **kwargs)
-        try:
-            for runnable in jobs:
-                if runnable:
-                    builder = kwargs.get("builder", None)
-                    if builder is not None:
-                        runnable.builder = builder
-                    if runnable.outdir:
-                        output_dirs.add(runnable.outdir)
-                    runnable.run(**kwargs)
-                else:
-                    time.sleep(1)
-
-        except WorkflowException as e:
-            raise e
-        except Exception as e:
-            log.error("Got exception")
-            raise WorkflowException(str(e))
-
-        # wait for all processes to finish
-        self.wait()
-
-        if final_output and final_output[0] and finaloutdir:
-            final_output[0] = relocateOutputs(
-                final_output[0], finaloutdir,
-                output_dirs, kwargs.get("move_outputs"),
-                kwargs["make_fs_access"](""))
-
-        if kwargs.get("rm_tmpdir"):
-            cleanIntermediate(output_dirs)
-
-        if final_output and final_status:
-            return (final_output[0], final_status[0])
-        else:
-            return (None, "permanentFail")
-
-    def make_exec_tool(self, spec, **kwargs):
-        return TESCommandLineTool(
-            spec, self, fs_access=self.fs_access, **kwargs
-        )
-
-    def make_tool(self, spec, **kwargs):
-        if "class" in spec and spec["class"] == "CommandLineTool":
-            return self.make_exec_tool(spec, **kwargs)
-        else:
-            return defaultMakeTool(spec, **kwargs)
-
-    def add_thread(self, thread):
-        self.threads.append(thread)
-
-    def wait(self):
-        while True:
-            if all([not t.is_alive() for t in self.threads]):
-                break
-        for t in self.threads:
-            t.join()
-
-
-class TESCommandLineTool(CommandLineTool):
-
-    def __init__(self, spec, tes_workflow, fs_access, **kwargs):
-        super(TESCommandLineTool, self).__init__(spec, **kwargs)
-        self.spec = spec
-        self.tes_workflow = tes_workflow
-        self.fs_access = fs_access
-
-    def makeJobRunner(self, use_container=True, **kwargs):
-        return TESTask(self.spec, self.tes_workflow, self.fs_access)
-
-    def makePathMapper(self, reffiles, stagedir, **kwargs):
-        return PathMapper(reffiles, kwargs["basedir"], stagedir)
-
-
-class TESTask(object):
-
-    def __init__(self, spec, tes_workflow, fs_access):
-        self.spec = spec
-        self.tes_workflow = tes_workflow
-        self.fs_access = fs_access
-
-        self.outputs = None
-        self.docker_workdir = "/var/spool/cwl"
-        self.inplace_update = False
+        self.id = None
+        self.state = "UNKNOWN"
+        self.poll_interval = 1
+        self.poll_retries = 10
+        self.client = tes.HTTPClient(kwargs.get("tes"))
 
     def find_docker_requirement(self):
         default = "python:2.7"
         container = default
-        if self.tes_workflow.kwargs["default_container"]:
-            container = self.tes_workflow.kwargs["default_container"]
+        if self.kwargs.get("default_container"):
+            container = self.kwargs.get("default_container")
 
         reqs = self.spec.get("requirements", []) + self.spec.get("hints", [])
         for i in reqs:
@@ -228,7 +120,7 @@ class TESTask(object):
             if "writable" in item:
                 raise UnsupportedRequirement(
                     "The TES spec does not allow for writable inputs"
-                    )
+                )
 
             if "contents" in item:
                 loc = self.fs_access.join(self.tmpdir, item["basename"])
@@ -247,7 +139,7 @@ class TESTask(object):
                     self.docker_workdir, item["basename"]
                 ),
                 type=item["class"].upper()
-                )
+            )
             inputs.append(parameter)
 
         return inputs
@@ -278,9 +170,9 @@ class TESTask(object):
 
         if self.stderr is not None:
             parameter = tes.Output(
-               name="stderr",
-               url=self.output2url(self.stderr),
-               path=self.output2path(self.stderr)
+                name="stderr",
+                url=self.output2url(self.stderr),
+                path=self.output2path(self.stderr)
             )
             output_parameters.append(parameter)
 
@@ -298,7 +190,8 @@ class TESTask(object):
         cpus = None
         ram = None
         disk = None
-        for i in self.requirements:
+
+        for i in self.builder.requirements:
             if i.get("class", "NA") == "ResourceRequirement":
                 cpus = i.get("coresMin", i.get("coresMax", None))
                 ram = i.get("ramMin", i.get("ramMax", None))
@@ -344,7 +237,7 @@ class TESTask(object):
 
     def run(self, pull_image=True, rm_container=True, rm_tmpdir=True,
             move_outputs="move", **kwargs):
-        # useful for debugging
+
         log.debug(
             "[job %s] self.__dict__ in run() ----------------------" %
             (self.name)
@@ -360,55 +253,99 @@ class TESTask(object):
         log.info(pformat(task))
 
         try:
-            task_id = self.tes_workflow.client.create_task(task)
+            self.id = self.client.create_task(task)
             log.info(
                 "[job %s] SUBMITTED TASK ----------------------" %
                 (self.name)
             )
-            log.info("[job %s] task id: %s " % (self.name, task_id))
+            log.info("[job %s] task id: %s " % (self.name, self.id))
         except Exception as e:
             log.error(
                 "[job %s] Failed to submit task to TES service:\n%s" %
                 (self.name, e)
             )
-            return WorkflowException(e)
+            raise WorkflowException(e)
 
-        def callback():
+        max_tries = 10
+        current_try = 1
+        while not self.is_done():
+            delay = 1.5 * current_try**2
+            time.sleep(
+                random.randint(
+                    round(
+                        delay -
+                        0.5 *
+                        delay),
+                    round(
+                        delay +
+                        0.5 *
+                        delay)))
+            log.debug(
+                "[job %s] POLLING %s" %
+                (self.name, pformat(self.id))
+            )
             try:
-                outputs = self.collect_outputs(self.outdir)
-                cleaned_outputs = {}
-                for k, v in outputs.items():
-                    if isinstance(k, bytes):
-                        k = k.decode("utf8")
-                    if isinstance(v, bytes):
-                        v = v.decode("utf8")
-                    cleaned_outputs[k] = v
+                task = self.client.get_task(self.id, "MINIMAL")
+                self.state = task.state
+            except Exception as e:
+                log.error("[job %s] POLLING ERROR %s" % (self.name, e))
+                if current_try <= max_tries:
+                    current_try += 1
+                    continue
+                else:
+                    log.error("[job %s] MAX POLLING RETRIES EXCEEDED" %
+                              (self.name))
+                    break
+
+        try:
+            outputs = self.collect_outputs(self.outdir)
+            cleaned_outputs = {}
+            for k, v in outputs.items():
+                if isinstance(k, bytes):
+                    k = k.decode("utf8")
+                if isinstance(v, bytes):
+                    v = v.decode("utf8")
+                cleaned_outputs[k] = v
                 self.outputs = cleaned_outputs
                 self.output_callback(self.outputs, "success")
-            except WorkflowException as e:
-                log.error("[job %s] job error:\n%s" % (self.name, e))
-                self.output_callback({}, "permanentFail")
-            except Exception as e:
-                log.error("[job %s] job error:\n%s" % (self.name, e))
-                self.output_callback({}, "permanentFail")
-            finally:
-                if self.outputs is not None:
-                    log.info(
-                        "[job %s] OUTPUTS ------------------" %
-                        (self.name)
+        except WorkflowException as e:
+            log.error("[job %s] job error:\n%s" % (self.name, e))
+            self.output_callback({}, "permanentFail")
+        except Exception as e:
+            log.error("[job %s] job error:\n%s" % (self.name, e))
+            self.output_callback({}, "permanentFail")
+        finally:
+            if self.outputs is not None:
+                log.info(
+                    "[job %s] OUTPUTS ------------------" %
+                    (self.name)
+                )
+                log.info(pformat(self.outputs))
+            self.cleanup(rm_tmpdir)
+        return
+
+    def is_done(self):
+        terminal_states = ["COMPLETE", "CANCELED", "EXECUTOR_ERROR",
+                           "SYSTEM_ERROR"]
+        if self.state in terminal_states:
+            log.info(
+                "[job %s] FINAL JOB STATE: %s ------------------" %
+                (self.name, self.state)
+            )
+            if self.state != "COMPLETE":
+                log.error(
+                    "[job %s] task id: %s" % (self.name, self.id)
+                )
+                log.error(
+                    "[job %s] logs: %s" %
+                    (
+                        self.name,
+                        self.client.get_task(self.id, "FULL").logs
                     )
-                    log.info(pformat(self.outputs))
-                self.cleanup(rm_tmpdir)
 
-        poll = TESTaskPollThread(
-            jobname=self.name,
-            taskID=task_id,
-            client=self.tes_workflow.client,
-            callback=callback
-        )
-
-        self.tes_workflow.add_thread(poll)
-        poll.start()
+                )
+            return True
+        return False
 
     def cleanup(self, rm_tmpdir):
         log.debug(
@@ -440,72 +377,3 @@ class TESTask(object):
         if path is not None:
             return self.fs_access.join(self.docker_workdir, path)
         return None
-
-
-class TESTaskPollThread(threading.Thread):
-
-    def __init__(self, jobname, taskID, client, callback, poll_interval=1,
-                 poll_retries=10):
-        super(TESTaskPollThread, self).__init__()
-        self.daemon = True
-        self.name = jobname
-        self.id = taskID
-        self.state = "UNKNOWN"
-        self.client = client
-        self.callback = callback
-        self.poll_interval = poll_interval
-        self.poll_retries = poll_retries
-
-    def run(self):
-        while not self.is_done(self.state):
-            time.sleep(self.poll_interval)
-            # slow down polling over time till it hits a max
-            # if self.poll_interval < 30:
-            #     self.poll_interval += 1
-            log.debug(
-                "[job %s] POLLING %s" %
-                (self.name, pformat(self.id))
-            )
-            try:
-                self.state = self.poll()
-            except Exception as e:
-                log.error("[job %s] POLLING ERROR %s" % (self.name, e))
-                if self.poll_retries > 0:
-                    self.poll_retries -= 1
-                    continue
-                else:
-                    log.error("[job %s] MAX POLLING RETRIES EXCEEDED" %
-                              (self.name))
-                    break
-
-        self.complete()
-
-    def poll(self):
-        task = self.client.get_task(self.id, "MINIMAL")
-        return task.state
-
-    def is_done(self, state):
-        terminal_states = ["COMPLETE", "CANCELED", "EXECUTOR_ERROR",
-                           "SYSTEM_ERROR"]
-        if state in terminal_states:
-            log.info(
-                "[job %s] FINAL JOB STATE: %s ------------------" %
-                (self.name, state)
-            )
-            if state != "COMPLETE":
-                log.error(
-                    "[job %s] task id: %s" % (self.name, self.id)
-                )
-                log.error(
-                    "[job %s] logs: %s" %
-                    (
-                        self.name,
-                        self.client.get_task(self.id, "FULL").logs
-                    )
-
-                )
-            return True
-        return False
-
-    def complete(self):
-        self.callback()
