@@ -1,35 +1,21 @@
 sudo: required
 language: python
+cache: pip
 python:
   - 2.7
+  - 3.4
   - 3.5
   - 3.6
 services:
   - docker
 os:
   - linux
-
-before_install:
-  - git submodule update --init --recursive
-
 install:
-  - pip install -r ./requirements.txt
-  - pip install -r ./tests/requirements.txt
-  - pip install flake8
-
-before_script:
-  - wget -O /opt/funnel.tar.gz https://github.com/ohsu-comp-bio/funnel/releases/download/0.4.1/funnel-linux-amd64-0.4.1.tar.gz
-  - tar -zxvf /opt/funnel.tar.gz -C /opt
-  - export PATH=$PATH:/opt
-  - docker pull python:2.7
-
-script: 
-  - flake8 ./cwl_tes
-  - python -m nose ./tests
-
+  - pip install tox-travis
+script:
+  - tox
 after_failure:
   - echo "FUNNEL LOGS ----------"
   - cat ./tests/test_tmp/conformance_test_v1.0_*/funnel_log.txt
-
 notifications:
   email: false
