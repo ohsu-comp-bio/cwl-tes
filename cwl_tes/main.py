@@ -85,8 +85,10 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
         description='GA4GH TES executor for Common Workflow Language.')
     parser.add_argument("--tes", type=str, help="GA4GH TES Service URL.")
     parser.add_argument("--basedir", type=Text)
-    parser.add_argument("--outdir", type=Text, default=os.path.abspath('.'),
+    parser.add_argument("--outdir",
+                        type=Text, default=os.path.abspath('.'),
                         help="Output directory, default current directory")
+
     envgroup = parser.add_mutually_exclusive_group()
     envgroup.add_argument(
         "--preserve-environment",
@@ -262,6 +264,13 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
         "--js-console",
         action="store_true",
         help="Enable javascript console output")
+    parser.add_argument("--disable-js-validation",
+                        action="store_true",
+                        help="Disable javascript validation.")
+    parser.add_argument("--js-hint-options-file",
+                        type=Text,
+                        help="File of options to pass to jshint."
+                        "This includes the added option \"includewarnings\". ")
 
     parser.add_argument(
         "--tool-help",
@@ -293,6 +302,9 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
         "--default-container",
         help="Specify a default docker container that will be used if the "
         "workflow fails to specify one.")
+    parser.add_argument("--disable-validate", dest="do_validate",
+                        action="store_false", default=True,
+                        help=argparse.SUPPRESS)
 
     exgroup = parser.add_mutually_exclusive_group()
     exgroup.add_argument(
@@ -343,9 +355,9 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
         help="Relax requirements on path names to permit "
         "spaces and hash characters.",
         dest="relax_path_checks")
-    exgroup.add_argument("--make-template", action="store_true",
-                         help="Generate a template input object")
-
+    parser.add_argument("--make-template",
+                        action="store_true",
+                        help="Generate a template input object")
     parser.add_argument(
         "--overrides",
         type=str,

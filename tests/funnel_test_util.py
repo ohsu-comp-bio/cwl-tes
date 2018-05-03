@@ -48,12 +48,6 @@ def temp_config(dir, config):
     return configFile
 
 
-def config_seconds(sec):
-    # The funnel config is currently parsed as nanoseconds
-    # this helper makes that manageale
-    return int(sec * 1000000000)
-
-
 def check_version(cmd, version_str):
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                          universal_newlines=True)
@@ -75,8 +69,8 @@ class SimpleServerTest(unittest.TestCase):
                 file=sys.stdout)
             raise RuntimeError
 
-        # if not check_version(["funnel", "version"], "version: 0.5.0"):
-        #     raise RuntimeError("expected Funnel version 0.5.0")
+        # if not check_version(["funnel", "version"], "version: 0.7.0"):
+        #     raise RuntimeError("expected Funnel version 0.7.0")
 
         self.rootprojectdir = os.path.dirname(
             os.path.dirname(os.path.realpath(__file__)))
@@ -96,7 +90,7 @@ class SimpleServerTest(unittest.TestCase):
         logFile = os.path.join(self.tmpdir, "funnel_log.txt")
 
         # Build server config file (YAML)
-        rate = config_seconds(0.05)
+        rate = "500ms"
         configFile = temp_config(
             dir=self.tmpdir,
             config={
