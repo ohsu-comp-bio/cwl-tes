@@ -1,7 +1,7 @@
 [![Build Status](https://travis-ci.org/common-workflow-language/cwl-tes.svg?branch=master)](https://travis-ci.org/common-workflow-language/cwl-tes)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-# GA4GH CWL Task Execution 
+# GA4GH CWL Task Execution
 
 ___cwl-tes___ submits your tasks to a TES server. Task submission is parallelized when possible.
 
@@ -10,7 +10,7 @@ ___cwl-tes___ submits your tasks to a TES server. Task submission is parallelize
 
 ## Requirements
 
-* Python 2.7 / 3.5 / 3.6
+* Python 2.7 / 3.4 / 3.5 / 3.6
 
 * [Docker](https://docs.docker.com/)
 
@@ -32,8 +32,8 @@ cwl-tes --tes http://localhost:8000 tests/hashsplitter-workflow.cwl.yml --input 
 
 ## Install
 
-I strongly reccommend using a [virutalenv](https://virtualenv.pypa.io/en/stable/#) for installation since _cwl-tes_
-depends on a specific version of _cwltool_. 
+I strongly recommend using a [virtualenv](https://virtualenv.pypa.io/en/stable/#) for installation since _cwl-tes_
+depends on a specific version of _cwltool_.
 
 Install from pip:
 
@@ -51,14 +51,28 @@ python setup.py install
 
 ## Run the v1.0 conformance tests
 
-To start a funnel server instance automatically and run all of the conformance tests:
+To start a funnel server instance automatically and run all of the tests, install [tox](https://github.com/tox-dev/tox/) and run it
 
 ```
-python -m nose ./tests
+$ pip install tox
+$ tox
 ```
 
+For running only the conformance tests in python 2.7:
+
+```
+$ tox -e py27-unit
+```
+
+In a similar way they can be run on any supported python interpreter.
 
 _A more manual approach:_
+
+Download the conformance tests:
+
+```
+git submodule update --init --recursive
+```
 
 Start the funnel server.
 

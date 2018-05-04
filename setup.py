@@ -31,6 +31,8 @@ setup(
     version=find_version("cwl_tes", "__init__.py"),
     description="Common workflow language reference implementation backended \
     by a GA4GH Task Execution Service",
+    long_description=read('README.md'),
+    long_description_content_type='text/markdown',
     author="Adam Struck",
     author_email="strucka@ohsu.edu",
     url="https://github.com/common-workflow-language/cwl-tes",
