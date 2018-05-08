@@ -47,7 +47,7 @@ setup(
     ],
     extras_require={
         "test": [
-            "cwltest>=1.0.20180416154033",
+            "cwltest==1.0.20170809112706",
             "nose>=1.3.7",
             "flake8>=3.5.0",
             "PyYAML>=3.12"
