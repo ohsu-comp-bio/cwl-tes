@@ -10,7 +10,7 @@ ___cwl-tes___ submits your tasks to a TES server. Task submission is parallelize
 
 ## Requirements
 
-* Python 2.7 / 3.4 / 3.5 / 3.6
+* Python 2.7 / 3.5 / 3.6
 
 * [Docker](https://docs.docker.com/)
 

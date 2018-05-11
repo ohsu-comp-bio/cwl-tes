@@ -38,7 +38,7 @@ setup(
     url="https://github.com/common-workflow-language/cwl-tes",
     license="Apache 2.0",
     packages=find_packages(),
-    python_requires=">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, <4",
+    python_requires=">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, <4",
     install_requires=[
         "cwltool==1.0.20180108222053",
         "future>=0.16.0",
