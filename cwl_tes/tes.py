@@ -10,6 +10,7 @@ import time
 from cwltool.command_line_tool import CommandLineTool
 from cwltool.errors import WorkflowException, UnsupportedRequirement
 from cwltool.stdfsaccess import StdFsAccess
+from cwltool.utils import onWindows
 from cwltool.workflow import defaultMakeTool
 from pprint import pformat
 from schema_salad.ref_resolver import file_uri
@@ -54,7 +55,7 @@ class TESTask(object):
         self.poll_retries = 10
         self.client = tes.HTTPClient(kwargs.get("tes"))
 
-    def find_docker_requirement(self):
+    def get_container(self):
         default = "python:2.7"
         container = default
         if self.kwargs.get("default_container"):
@@ -69,7 +70,7 @@ class TESTask(object):
                 )
         return container
 
-    def create_input_parameter(self, name, d):
+    def create_input(self, name, d):
         if "contents" in d:
             return tes.Input(
                 name=name,
@@ -90,7 +91,7 @@ class TESTask(object):
     def parse_job_order(self, k, v, inputs):
         if isinstance(v, dict):
             if all([i in v for i in ["location", "path", "class"]]):
-                inputs.append(self.create_input_parameter(k, v))
+                inputs.append(self.create_input(k, v))
 
                 if "secondaryFiles" in v:
                     for f in v["secondaryFiles"]:
@@ -144,7 +145,7 @@ class TESTask(object):
 
         return inputs
 
-    def collect_input_parameters(self):
+    def get_inputs(self):
         inputs = []
 
         # find all primary and secondary input files
@@ -156,8 +157,26 @@ class TESTask(object):
 
         return inputs
 
+    def get_envvars(self):
+        env = self.environment
+        vars_to_preserve = self.kwargs.get("preserve_environment")
+        if self.kwargs.get("preserve_entire_environment"):
+            vars_to_preserve = os.environ
+        if vars_to_preserve is not None:
+            for key, value in os.environ.items():
+                if key in vars_to_preserve and key not in env:
+                    # On Windows, subprocess env can't handle unicode.
+                    env[key] = str(value) if onWindows() else value
+        env["HOME"] = str(self.outdir) if onWindows() else self.outdir
+        env["TMPDIR"] = str(self.tmpdir) if onWindows() else self.tmpdir
+        if "PATH" not in env:
+            env["PATH"] = str(os.environ["PATH"]) if onWindows() else os.environ["PATH"]
+        if "SYSTEMROOT" not in env and "SYSTEMROOT" in os.environ:
+            env["SYSTEMROOT"] = str(os.environ["SYSTEMROOT"]) if onWindows() else os.environ["SYSTEMROOT"]
+        return env
+
     def create_task_msg(self):
-        input_parameters = self.collect_input_parameters()
+        input_parameters = self.get_inputs()
         output_parameters = []
 
         if self.stdout is not None:
@@ -185,8 +204,7 @@ class TESTask(object):
             )
         )
 
-        container = self.find_docker_requirement()
-
+        container = self.get_container()
         cpus = None
         ram = None
         disk = None
@@ -195,8 +213,16 @@ class TESTask(object):
             if i.get("class", "NA") == "ResourceRequirement":
                 cpus = i.get("coresMin", i.get("coresMax", None))
                 ram = i.get("ramMin", i.get("ramMax", None))
-                ram = ram / 953.674 if ram is not None else None
                 disk = i.get("outdirMin", i.get("outdirMax", None))
+
+                if (cpus is None or isinstance(cpus, str)) or \
+                   (ram is None or isinstance(ram, str)) or \
+                   (disk is None or isinstance(disk, str)):
+                    raise UnsupportedRequirement(
+                        "cwl-tes does not support dynamic resource requests"
+                    )
+
+                ram = ram / 953.674 if ram is not None else None
                 disk = disk / 953.674 if disk is not None else None
             elif i.get("class", "NA") == "DockerRequirement":
                 if i.get("dockerOutputDirectory", None) is not None:
@@ -220,7 +246,7 @@ class TESTask(object):
                     stdout=self.output2path(self.stdout),
                     stderr=self.output2path(self.stderr),
                     stdin=self.stdin,
-                    env=self.environment
+                    env=self.get_envvars()
                 )
             ],
             inputs=input_parameters,
@@ -307,7 +333,7 @@ class TESTask(object):
                     v = v.decode("utf8")
                 cleaned_outputs[k] = v
                 self.outputs = cleaned_outputs
-                self.output_callback(self.outputs, "success")
+            self.output_callback(self.outputs, "success")
         except WorkflowException as e:
             log.error("[job %s] job error:\n%s" % (self.name, e))
             self.output_callback({}, "permanentFail")
