@@ -8,7 +8,7 @@ doc: "unify hashed values into a single output"
 
 hints:
   - class: DockerRequirement
-    dockerPull: openssl
+    dockerPull: frapsoft/openssl
 
 inputs:  
   - id: md5

@@ -71,7 +71,11 @@ def main(args=None):
     if not parsed_args.rm_container:
         log.warning("arg: 'leave_container' has no effect in cwl-tes")
 
-    tes_workflow = TESWorkflow(parsed_args.tes, vars(parsed_args))
+    runtime_context = cwltool.main.RuntimeContext(
+        kwargs={
+            "basedir": parsed_args.basedir,
+            "default_container": parsed_args.default_container})
+    tes_workflow = TESWorkflow(parsed_args.tes, runtime_context)
 
     # setup signal handler
     def signal_handler(*args):
@@ -88,10 +92,12 @@ def main(args=None):
         sys.exit(1)
     signal.signal(signal.SIGINT, signal_handler)
 
+    loading_context = cwltool.main.LoadingContext(vars(parsed_args))
+    loading_context.construct_tool_object = tes_workflow.make_tool
     return cwltool.main.main(
         args=parsed_args,
         executor=tes_workflow.executor,
-        makeTool=tes_workflow.make_tool,
+        loadingContext=loading_context,
         versionfunc=versionstring,
         logger_handler=console
     )
