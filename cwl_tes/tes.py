@@ -170,9 +170,15 @@ class TESTask(object):
         env["HOME"] = str(self.outdir) if onWindows() else self.outdir
         env["TMPDIR"] = str(self.tmpdir) if onWindows() else self.tmpdir
         if "PATH" not in env:
-            env["PATH"] = str(os.environ["PATH"]) if onWindows() else os.environ["PATH"]
+            if onWindows():
+                env["PATH"] = str(os.environ["PATH"])
+            else:
+                os.environ["PATH"]
         if "SYSTEMROOT" not in env and "SYSTEMROOT" in os.environ:
-            env["SYSTEMROOT"] = str(os.environ["SYSTEMROOT"]) if onWindows() else os.environ["SYSTEMROOT"]
+            if onWindows():
+                env["SYSTEMROOT"] = str(os.environ["SYSTEMROOT"])
+            else:
+                os.environ["SYSTEMROOT"]
         return env
 
     def create_task_msg(self):
