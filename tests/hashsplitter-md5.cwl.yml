@@ -7,7 +7,7 @@ doc: "hash input through md5"
 
 hints:
   - class: DockerRequirement
-    dockerPull: openssl
+    dockerPull: frapsoft/openssl
   
   - class: ResourceRequirement
     coresMin: 1

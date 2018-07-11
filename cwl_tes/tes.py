@@ -9,13 +9,13 @@ import threading
 import time
 
 from builtins import str
-from cwltool.draft2tool import CommandLineTool
+from cwltool.command_line_tool import CommandLineTool
 from cwltool.errors import WorkflowException, UnsupportedRequirement
 from cwltool.mutation import MutationManager
 from cwltool.pathmapper import PathMapper
 from cwltool.process import cleanIntermediate, relocateOutputs
 from cwltool.stdfsaccess import StdFsAccess
-from cwltool.workflow import defaultMakeTool
+from cwltool.workflow import default_make_tool
 from pprint import pformat
 from schema_salad.ref_resolver import file_uri
 
@@ -24,17 +24,15 @@ log = logging.getLogger("tes-backend")
 
 class TESWorkflow(object):
 
-    def __init__(self, url, kwargs):
+    def __init__(self, url, runtime_context):
         self.threads = []
-        self.kwargs = kwargs
+        self.basedir = runtime_context.basedir if \
+            runtime_context.basedir is not None else os.getcwd()
+        self.default_container = runtime_context.default_container
         self.client = tes.HTTPClient(url)
-        if kwargs.get("basedir") is not None:
-            self.basedir = kwargs.get("basedir")
-        else:
-            self.basedir = os.getcwd()
         self.fs_access = StdFsAccess(self.basedir)
 
-    def executor(self, tool, job_order, **kwargs):
+    def executor(self, tool, job_order, runtimeContext, logger):
         final_output = []
         final_status = []
 
@@ -42,25 +40,23 @@ class TESWorkflow(object):
             final_status.append(processStatus)
             final_output.append(out)
 
-        if "basedir" not in kwargs:
-            raise WorkflowException("Must provide 'basedir' in kwargs")
-
         output_dirs = set()
 
-        if kwargs.get("outdir"):
-            finaloutdir = os.path.abspath(kwargs.get("outdir"))
+        if runtimeContext.outdir:
+            finaloutdir = os.path.abspath(runtimeContext.outdir)
         else:
             finaloutdir = None
 
-        if kwargs.get("tmp_outdir_prefix"):
-            kwargs["outdir"] = tempfile.mkdtemp(
-                prefix=kwargs["tmp_outdir_prefix"]
+        if runtimeContext.tmp_outdir_prefix:
+            runtimeContext.outdir = tempfile.mkdtemp(
+                prefix=runtimeContext.tmp_outdir_prefix
             )
         else:
-            kwargs["outdir"] = tempfile.mkdtemp()
+            runtimeContext.outdir = tempfile.mkdtemp()
 
-        output_dirs.add(kwargs["outdir"])
-        kwargs["mutation_manager"] = MutationManager()
+        output_dirs.add(runtimeContext.outdir)
+        runtimeContext.mutation_manager = MutationManager()
+        runtimeContext.toplevel = True
 
         jobReqs = None
         if "cwl:requirements" in job_order:
@@ -72,22 +68,22 @@ class TESWorkflow(object):
             for req in jobReqs:
                 tool.requirements.append(req)
 
-        if kwargs.get("default_container"):
+        if runtimeContext.default_container:
             tool.requirements.insert(0, {
                 "class": "DockerRequirement",
-                "dockerPull": kwargs["default_container"]
+                "dockerPull": runtimeContext.default_container
             })
 
-        jobs = tool.job(job_order, output_callback, **kwargs)
+        jobs = tool.job(job_order, output_callback, runtimeContext)
         try:
             for runnable in jobs:
                 if runnable:
-                    builder = kwargs.get("builder", None)
+                    builder = runtimeContext.builder
                     if builder is not None:
                         runnable.builder = builder
                     if runnable.outdir:
                         output_dirs.add(runnable.outdir)
-                    runnable.run(**kwargs)
+                    runnable.run(runtimeContext)
                 else:
                     time.sleep(1)
 
@@ -103,10 +99,10 @@ class TESWorkflow(object):
         if final_output and final_output[0] and finaloutdir:
             final_output[0] = relocateOutputs(
                 final_output[0], finaloutdir,
-                output_dirs, kwargs.get("move_outputs"),
-                kwargs["make_fs_access"](""))
+                output_dirs, runtimeContext.move_outputs,
+                runtimeContext.make_fs_access(""))
 
-        if kwargs.get("rm_tmpdir"):
+        if runtimeContext.rm_tmpdir:
             cleanIntermediate(output_dirs)
 
         if final_output and final_status:
@@ -114,16 +110,16 @@ class TESWorkflow(object):
         else:
             return (None, "permanentFail")
 
-    def make_exec_tool(self, spec, **kwargs):
+    def make_exec_tool(self, spec, loadingContext):
         return TESCommandLineTool(
-            spec, self, fs_access=self.fs_access, **kwargs
+            spec, self, self.fs_access, loadingContext
         )
 
-    def make_tool(self, spec, **kwargs):
+    def make_tool(self, spec, loadingContext):
         if "class" in spec and spec["class"] == "CommandLineTool":
-            return self.make_exec_tool(spec, **kwargs)
+            return self.make_exec_tool(spec, loadingContext)
         else:
-            return defaultMakeTool(spec, **kwargs)
+            return default_make_tool(spec, loadingContext)
 
     def add_thread(self, thread):
         self.threads.append(thread)
@@ -138,25 +134,28 @@ class TESWorkflow(object):
 
 class TESCommandLineTool(CommandLineTool):
 
-    def __init__(self, spec, tes_workflow, fs_access, **kwargs):
-        super(TESCommandLineTool, self).__init__(spec, **kwargs)
+    def __init__(self, spec, tes_workflow, fs_access, loadingContext):
+        super(TESCommandLineTool, self).__init__(spec, loadingContext)
         self.spec = spec
         self.tes_workflow = tes_workflow
         self.fs_access = fs_access
 
-    def makeJobRunner(self, use_container=True, **kwargs):
-        return TESTask(self.spec, self.tes_workflow, self.fs_access)
+    def makeJobRunner(self, runtimeContext):
+        return TESTask(self.spec, self.tes_workflow, self.fs_access,
+                       runtimeContext.tmpdir)
 
-    def makePathMapper(self, reffiles, stagedir, **kwargs):
-        return PathMapper(reffiles, kwargs["basedir"], stagedir)
+    def makePathMapper(self, reffiles, stagedir, runtimeContext, seperateDirs):
+        return PathMapper(reffiles, runtimeContext.basedir, stagedir,
+                          seperateDirs)
 
 
 class TESTask(object):
 
-    def __init__(self, spec, tes_workflow, fs_access):
+    def __init__(self, spec, tes_workflow, fs_access, tmpdir):
         self.spec = spec
         self.tes_workflow = tes_workflow
         self.fs_access = fs_access
+        self.tmpdir = tmpdir
 
         self.outputs = None
         self.docker_workdir = "/var/spool/cwl"
@@ -165,8 +164,8 @@ class TESTask(object):
     def find_docker_requirement(self):
         default = "python:2.7"
         container = default
-        if self.tes_workflow.kwargs["default_container"]:
-            container = self.tes_workflow.kwargs["default_container"]
+        if self.tes_workflow.default_container:
+            container = self.tes_workflow.default_container
 
         reqs = self.spec.get("requirements", []) + self.spec.get("hints", [])
         for i in reqs:
@@ -342,8 +341,7 @@ class TESTask(object):
 
         return create_body
 
-    def run(self, pull_image=True, rm_container=True, rm_tmpdir=True,
-            move_outputs="move", **kwargs):
+    def run(self, runtimeContext):
         # useful for debugging
         log.debug(
             "[job %s] self.__dict__ in run() ----------------------" %
@@ -398,7 +396,7 @@ class TESTask(object):
                         (self.name)
                     )
                     log.info(pformat(self.outputs))
-                self.cleanup(rm_tmpdir)
+                self.cleanup(runtimeContext.rm_tmpdir)
 
         poll = TESTaskPollThread(
             jobname=self.name,
