@@ -1,19 +1,21 @@
 from __future__ import absolute_import, print_function, unicode_literals
 
 import argparse
-import cwltool.main
 import os
-import pkg_resources
+import functools
 import signal
 import sys
 import logging
-
-from cwltool.executors import MultithreadedJobExecutor
-from cwltool.resolver import ga4gh_tool_registries
 from typing import Text
 
-from cwl_tes.tes import make_tes_tool
-from cwl_tes.__init__ import __version__
+
+import pkg_resources
+import cwltool.main
+from cwltool.executors import MultithreadedJobExecutor
+from cwltool.resolver import ga4gh_tool_registries
+
+from .tes import make_tes_tool
+from .__init__ import __version__
 
 
 log = logging.getLogger("tes-backend")
@@ -71,10 +73,13 @@ def main(args=None):
         sys.exit(1)
     signal.signal(signal.SIGINT, signal_handler)
 
+    loading_context = cwltool.main.LoadingContext(vars(parsed_args))
+    loading_context.construct_tool_object = functools.partial(
+        make_tes_tool, url=parsed_args.tes)
     return cwltool.main.main(
         args=parsed_args,
         executor=MultithreadedJobExecutor(),
-        makeTool=make_tes_tool,
+        loadingContext=loading_context,
         versionfunc=versionstring,
         logger_handler=console
     )

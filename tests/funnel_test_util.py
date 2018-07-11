@@ -64,7 +64,7 @@ class SimpleServerTest(unittest.TestCase):
         if not cmd_exists("funnel"):
             print(
                 "-bash: funnel: command not found\n",
-                "see https://ohsu-comp-bio.github.io/funnel/install/",
+                "see https://ohsu-comp-bio.github.io/funnel/download/",
                 "for instuctions on how to install",
                 file=sys.stdout)
             raise RuntimeError

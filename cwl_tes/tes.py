@@ -3,63 +3,82 @@ from __future__ import absolute_import, print_function, unicode_literals
 import logging
 import os
 import random
-import shutil
-import tes
 import time
+from builtins import str
+import shutil
+import functools
+from pprint import pformat
+from typing import Any, Dict, List, Text, Union
+
+import tes
 
 from cwltool.command_line_tool import CommandLineTool
 from cwltool.errors import WorkflowException, UnsupportedRequirement
+from cwltool.job import JobBase
 from cwltool.stdfsaccess import StdFsAccess
 from cwltool.utils import onWindows
-from cwltool.workflow import defaultMakeTool
-from pprint import pformat
+from cwltool.workflow import default_make_tool
 from schema_salad.ref_resolver import file_uri
 
 log = logging.getLogger("tes-backend")
 
 
-def make_tes_tool(spec, **kwargs):
+def make_tes_tool(spec, loading_context, url):
     if "class" in spec and spec["class"] == "CommandLineTool":
-        return TESCommandLineTool(spec, **kwargs)
+        return TESCommandLineTool(spec, loading_context, url)
     else:
-        return defaultMakeTool(spec, **kwargs)
+        return default_make_tool(spec, loading_context)
 
 
 class TESCommandLineTool(CommandLineTool):
 
-    def __init__(self, spec, **kwargs):
-        super(TESCommandLineTool, self).__init__(spec, **kwargs)
+    def __init__(self, spec, loading_context, url):
+        super(TESCommandLineTool, self).__init__(spec, loading_context)
         self.spec = spec
+        self.url = url
 
-    def makeJobRunner(self, use_container=True, **kwargs):
-        return TESTask(self.spec, **kwargs)
+    def make_job_runner(self, runtime_context):
+        return functools.partial(TESTask, runtime_context=runtime_context,
+                                 url=self.url, spec=self.spec)
 
 
-class TESTask(object):
+class TESTask(JobBase):
+    JobOrderType = Dict[Text, Union[Dict[Text, Any], List, Text]]
 
-    def __init__(self, spec, **kwargs):
+    def __init__(self,
+                 builder,   # type: Builder
+                 joborder,  # type: JobOrderType
+                 make_path_mapper,  # type: Callable[..., PathMapper]
+                 requirements,  # type: List[Dict[Text, Text]]
+                 hints,  # type: List[Dict[Text, Text]]
+                 name,   # type: Text
+                 runtime_context,
+                 url,
+                 spec):
+        super(TESTask, self).__init__(builder, joborder, make_path_mapper,
+                                      requirements, hints, name)
+        self.runtime_context = runtime_context
         self.spec = spec
-        self.kwargs = kwargs
         self.outputs = None
-        self.docker_workdir = "/var/spool/cwl"
         self.inplace_update = False
-        if kwargs.get("basedir") is not None:
-            self.basedir = kwargs.get("basedir")
+        if runtime_context.basedir is not None:
+            self.basedir = runtime_context.basedir
         else:
             self.basedir = os.getcwd()
         self.fs_access = StdFsAccess(self.basedir)
 
         self.id = None
+        self.docker_workdir = '/var/spool/cwl'
         self.state = "UNKNOWN"
         self.poll_interval = 1
         self.poll_retries = 10
-        self.client = tes.HTTPClient(kwargs.get("tes"))
+        self.client = tes.HTTPClient(url)
 
     def get_container(self):
         default = "python:2.7"
         container = default
-        if self.kwargs.get("default_container"):
-            container = self.kwargs.get("default_container")
+        if self.runtime_context.default_container:
+            container = self.runtime_context.default_container
 
         reqs = self.spec.get("requirements", []) + self.spec.get("hints", [])
         for i in reqs:
@@ -159,8 +178,8 @@ class TESTask(object):
 
     def get_envvars(self):
         env = self.environment
-        vars_to_preserve = self.kwargs.get("preserve_environment")
-        if self.kwargs.get("preserve_entire_environment"):
+        vars_to_preserve = self.runtime_context.preserve_environment
+        if self.runtime_context.preserve_entire_environment:
             vars_to_preserve = os.environ
         if vars_to_preserve is not None:
             for key, value in os.environ.items():
@@ -170,9 +189,11 @@ class TESTask(object):
         env["HOME"] = str(self.outdir) if onWindows() else self.outdir
         env["TMPDIR"] = str(self.tmpdir) if onWindows() else self.tmpdir
         if "PATH" not in env:
-            env["PATH"] = str(os.environ["PATH"]) if onWindows() else os.environ["PATH"]
+            env["PATH"] = str(os.environ["PATH"]) if onWindows() \
+                else os.environ["PATH"]
         if "SYSTEMROOT" not in env and "SYSTEMROOT" in os.environ:
-            env["SYSTEMROOT"] = str(os.environ["SYSTEMROOT"]) if onWindows() else os.environ["SYSTEMROOT"]
+            env["SYSTEMROOT"] = str(os.environ["SYSTEMROOT"]) if onWindows() \
+                else os.environ["SYSTEMROOT"]
         return env
 
     def create_task_msg(self):
@@ -261,34 +282,32 @@ class TESTask(object):
 
         return create_body
 
-    def run(self, pull_image=True, rm_container=True, rm_tmpdir=True,
-            move_outputs="move", **kwargs):
-
+    def run(self, runtimeContext):
         log.debug(
-            "[job %s] self.__dict__ in run() ----------------------" %
-            (self.name)
+            "[job %s] self.__dict__ in run() ----------------------",
+            self.name
         )
         log.debug(pformat(self.__dict__))
 
         task = self.create_task_msg()
 
         log.info(
-            "[job %s] CREATED TASK MSG----------------------" %
-            (self.name)
+            "[job %s] CREATED TASK MSG----------------------",
+            self.name
         )
         log.info(pformat(task))
 
         try:
             self.id = self.client.create_task(task)
             log.info(
-                "[job %s] SUBMITTED TASK ----------------------" %
-                (self.name)
+                "[job %s] SUBMITTED TASK ----------------------",
+                self.name
             )
-            log.info("[job %s] task id: %s " % (self.name, self.id))
+            log.info("[job %s] task id: %s ", self.name, self.id)
         except Exception as e:
             log.error(
-                "[job %s] Failed to submit task to TES service:\n%s" %
-                (self.name, e)
+                "[job %s] Failed to submit task to TES service:\n%s",
+                self.name, e
             )
             raise WorkflowException(e)
 
@@ -307,20 +326,19 @@ class TESTask(object):
                         0.5 *
                         delay)))
             log.debug(
-                "[job %s] POLLING %s" %
-                (self.name, pformat(self.id))
+                "[job %s] POLLING %s", self.name, pformat(self.id)
             )
             try:
                 task = self.client.get_task(self.id, "MINIMAL")
                 self.state = task.state
             except Exception as e:
-                log.error("[job %s] POLLING ERROR %s" % (self.name, e))
+                log.error("[job %s] POLLING ERROR %s", self.name, e)
                 if current_try <= max_tries:
                     current_try += 1
                     continue
                 else:
-                    log.error("[job %s] MAX POLLING RETRIES EXCEEDED" %
-                              (self.name))
+                    log.error("[job %s] MAX POLLING RETRIES EXCEEDED",
+                              self.name)
                     break
 
         try:
@@ -335,19 +353,19 @@ class TESTask(object):
                 self.outputs = cleaned_outputs
             self.output_callback(self.outputs, "success")
         except WorkflowException as e:
-            log.error("[job %s] job error:\n%s" % (self.name, e))
+            log.error("[job %s] job error:\n%s", self.name, e)
             self.output_callback({}, "permanentFail")
         except Exception as e:
-            log.error("[job %s] job error:\n%s" % (self.name, e))
+            log.error("[job %s] job error:\n%s", self.name, e)
             self.output_callback({}, "permanentFail")
         finally:
             if self.outputs is not None:
                 log.info(
-                    "[job %s] OUTPUTS ------------------" %
-                    (self.name)
+                    "[job %s] OUTPUTS ------------------",
+                    self.name
                 )
                 log.info(pformat(self.outputs))
-            self.cleanup(rm_tmpdir)
+            self.cleanup(self.runtime_context.rm_tmpdir)
         return
 
     def is_done(self):
@@ -355,40 +373,36 @@ class TESTask(object):
                            "SYSTEM_ERROR"]
         if self.state in terminal_states:
             log.info(
-                "[job %s] FINAL JOB STATE: %s ------------------" %
-                (self.name, self.state)
+                "[job %s] FINAL JOB STATE: %s ------------------",
+                self.name, self.state
             )
             if self.state != "COMPLETE":
                 log.error(
-                    "[job %s] task id: %s" % (self.name, self.id)
+                    "[job %s] task id: %s", self.name, self.id
                 )
                 log.error(
-                    "[job %s] logs: %s" %
-                    (
-                        self.name,
-                        self.client.get_task(self.id, "FULL").logs
-                    )
-
+                    "[job %s] logs: %s",
+                    self.name, self.client.get_task(self.id, "FULL").logs
                 )
             return True
         return False
 
     def cleanup(self, rm_tmpdir):
         log.debug(
-            "[job %s] STARTING CLEAN UP ------------------" %
-            (self.name)
+            "[job %s] STARTING CLEAN UP ------------------",
+            self.name
         )
         if self.stagedir and os.path.exists(self.stagedir):
             log.debug(
-                "[job %s] Removing input staging directory %s" %
-                (self.name, self.stagedir)
+                "[job %s] Removing input staging directory %s",
+                self.name, self.stagedir
             )
             shutil.rmtree(self.stagedir, True)
 
         if rm_tmpdir:
             log.debug(
-                "[job %s] Removing temporary directory %s" %
-                (self.name, self.tmpdir)
+                "[job %s] Removing temporary directory %s",
+                self.name, self.tmpdir
             )
             shutil.rmtree(self.tmpdir, True)
 
