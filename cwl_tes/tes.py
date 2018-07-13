@@ -2,170 +2,83 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 import logging
 import os
-import tempfile
-import shutil
-import tes
-import threading
+import random
 import time
-
 from builtins import str
+import shutil
+import functools
+from pprint import pformat
+from typing import Any, Dict, List, Text, Union
+
+import tes
+
 from cwltool.command_line_tool import CommandLineTool
 from cwltool.errors import WorkflowException, UnsupportedRequirement
-from cwltool.mutation import MutationManager
-from cwltool.pathmapper import PathMapper
-from cwltool.process import cleanIntermediate, relocateOutputs
+from cwltool.job import JobBase
 from cwltool.stdfsaccess import StdFsAccess
+from cwltool.utils import onWindows
 from cwltool.workflow import default_make_tool
-from pprint import pformat
 from schema_salad.ref_resolver import file_uri
 
 log = logging.getLogger("tes-backend")
 
 
-class TESWorkflow(object):
-
-    def __init__(self, url, runtime_context):
-        self.threads = []
-        self.basedir = runtime_context.basedir if \
-            runtime_context.basedir is not None else os.getcwd()
-        self.default_container = runtime_context.default_container
-        self.client = tes.HTTPClient(url)
-        self.fs_access = StdFsAccess(self.basedir)
-
-    def executor(self, tool, job_order, runtimeContext, logger):
-        final_output = []
-        final_status = []
-
-        def output_callback(out, processStatus):
-            final_status.append(processStatus)
-            final_output.append(out)
-
-        output_dirs = set()
-
-        if runtimeContext.outdir:
-            finaloutdir = os.path.abspath(runtimeContext.outdir)
-        else:
-            finaloutdir = None
-
-        if runtimeContext.tmp_outdir_prefix:
-            runtimeContext.outdir = tempfile.mkdtemp(
-                prefix=runtimeContext.tmp_outdir_prefix
-            )
-        else:
-            runtimeContext.outdir = tempfile.mkdtemp()
-
-        output_dirs.add(runtimeContext.outdir)
-        runtimeContext.mutation_manager = MutationManager()
-        runtimeContext.toplevel = True
-
-        jobReqs = None
-        if "cwl:requirements" in job_order:
-            jobReqs = job_order["cwl:requirements"]
-        elif ("cwl:defaults" in tool.metadata and
-              "cwl:requirements" in tool.metadata["cwl:defaults"]):
-            jobReqs = tool.metadata["cwl:defaults"]["cwl:requirements"]
-        if jobReqs:
-            for req in jobReqs:
-                tool.requirements.append(req)
-
-        if runtimeContext.default_container:
-            tool.requirements.insert(0, {
-                "class": "DockerRequirement",
-                "dockerPull": runtimeContext.default_container
-            })
-
-        jobs = tool.job(job_order, output_callback, runtimeContext)
-        try:
-            for runnable in jobs:
-                if runnable:
-                    builder = runtimeContext.builder
-                    if builder is not None:
-                        runnable.builder = builder
-                    if runnable.outdir:
-                        output_dirs.add(runnable.outdir)
-                    runnable.run(runtimeContext)
-                else:
-                    time.sleep(1)
-
-        except WorkflowException as e:
-            raise e
-        except Exception as e:
-            log.error("Got exception")
-            raise WorkflowException(str(e))
-
-        # wait for all processes to finish
-        self.wait()
-
-        if final_output and final_output[0] and finaloutdir:
-            final_output[0] = relocateOutputs(
-                final_output[0], finaloutdir,
-                output_dirs, runtimeContext.move_outputs,
-                runtimeContext.make_fs_access(""))
-
-        if runtimeContext.rm_tmpdir:
-            cleanIntermediate(output_dirs)
-
-        if final_output and final_status:
-            return (final_output[0], final_status[0])
-        else:
-            return (None, "permanentFail")
-
-    def make_exec_tool(self, spec, loadingContext):
-        return TESCommandLineTool(
-            spec, self, self.fs_access, loadingContext
-        )
-
-    def make_tool(self, spec, loadingContext):
-        if "class" in spec and spec["class"] == "CommandLineTool":
-            return self.make_exec_tool(spec, loadingContext)
-        else:
-            return default_make_tool(spec, loadingContext)
-
-    def add_thread(self, thread):
-        self.threads.append(thread)
-
-    def wait(self):
-        while True:
-            if all([not t.is_alive() for t in self.threads]):
-                break
-        for t in self.threads:
-            t.join()
+def make_tes_tool(spec, loading_context, url):
+    if "class" in spec and spec["class"] == "CommandLineTool":
+        return TESCommandLineTool(spec, loading_context, url)
+    else:
+        return default_make_tool(spec, loading_context)
 
 
 class TESCommandLineTool(CommandLineTool):
 
-    def __init__(self, spec, tes_workflow, fs_access, loadingContext):
-        super(TESCommandLineTool, self).__init__(spec, loadingContext)
+    def __init__(self, spec, loading_context, url):
+        super(TESCommandLineTool, self).__init__(spec, loading_context)
         self.spec = spec
-        self.tes_workflow = tes_workflow
-        self.fs_access = fs_access
+        self.url = url
 
-    def makeJobRunner(self, runtimeContext):
-        return TESTask(self.spec, self.tes_workflow, self.fs_access,
-                       runtimeContext.tmpdir)
-
-    def makePathMapper(self, reffiles, stagedir, runtimeContext, seperateDirs):
-        return PathMapper(reffiles, runtimeContext.basedir, stagedir,
-                          seperateDirs)
+    def make_job_runner(self, runtime_context):
+        return functools.partial(TESTask, runtime_context=runtime_context,
+                                 url=self.url, spec=self.spec)
 
 
-class TESTask(object):
+class TESTask(JobBase):
+    JobOrderType = Dict[Text, Union[Dict[Text, Any], List, Text]]
 
-    def __init__(self, spec, tes_workflow, fs_access, tmpdir):
+    def __init__(self,
+                 builder,   # type: Builder
+                 joborder,  # type: JobOrderType
+                 make_path_mapper,  # type: Callable[..., PathMapper]
+                 requirements,  # type: List[Dict[Text, Text]]
+                 hints,  # type: List[Dict[Text, Text]]
+                 name,   # type: Text
+                 runtime_context,
+                 url,
+                 spec):
+        super(TESTask, self).__init__(builder, joborder, make_path_mapper,
+                                      requirements, hints, name)
+        self.runtime_context = runtime_context
         self.spec = spec
-        self.tes_workflow = tes_workflow
-        self.fs_access = fs_access
-        self.tmpdir = tmpdir
-
         self.outputs = None
-        self.docker_workdir = "/var/spool/cwl"
         self.inplace_update = False
+        if runtime_context.basedir is not None:
+            self.basedir = runtime_context.basedir
+        else:
+            self.basedir = os.getcwd()
+        self.fs_access = StdFsAccess(self.basedir)
 
-    def find_docker_requirement(self):
+        self.id = None
+        self.docker_workdir = '/var/spool/cwl'
+        self.state = "UNKNOWN"
+        self.poll_interval = 1
+        self.poll_retries = 10
+        self.client = tes.HTTPClient(url)
+
+    def get_container(self):
         default = "python:2.7"
         container = default
-        if self.tes_workflow.default_container:
-            container = self.tes_workflow.default_container
+        if self.runtime_context.default_container:
+            container = self.runtime_context.default_container
 
         reqs = self.spec.get("requirements", []) + self.spec.get("hints", [])
         for i in reqs:
@@ -176,7 +89,7 @@ class TESTask(object):
                 )
         return container
 
-    def create_input_parameter(self, name, d):
+    def create_input(self, name, d):
         if "contents" in d:
             return tes.Input(
                 name=name,
@@ -197,7 +110,7 @@ class TESTask(object):
     def parse_job_order(self, k, v, inputs):
         if isinstance(v, dict):
             if all([i in v for i in ["location", "path", "class"]]):
-                inputs.append(self.create_input_parameter(k, v))
+                inputs.append(self.create_input(k, v))
 
                 if "secondaryFiles" in v:
                     for f in v["secondaryFiles"]:
@@ -227,7 +140,7 @@ class TESTask(object):
             if "writable" in item:
                 raise UnsupportedRequirement(
                     "The TES spec does not allow for writable inputs"
-                    )
+                )
 
             if "contents" in item:
                 loc = self.fs_access.join(self.tmpdir, item["basename"])
@@ -246,12 +159,12 @@ class TESTask(object):
                     self.docker_workdir, item["basename"]
                 ),
                 type=item["class"].upper()
-                )
+            )
             inputs.append(parameter)
 
         return inputs
 
-    def collect_input_parameters(self):
+    def get_inputs(self):
         inputs = []
 
         # find all primary and secondary input files
@@ -263,8 +176,32 @@ class TESTask(object):
 
         return inputs
 
+    def get_envvars(self):
+        env = self.environment
+        vars_to_preserve = self.runtime_context.preserve_environment
+        if self.runtime_context.preserve_entire_environment:
+            vars_to_preserve = os.environ
+        if vars_to_preserve is not None:
+            for key, value in os.environ.items():
+                if key in vars_to_preserve and key not in env:
+                    # On Windows, subprocess env can't handle unicode.
+                    env[key] = str(value) if onWindows() else value
+        env["HOME"] = str(self.outdir) if onWindows() else self.outdir
+        env["TMPDIR"] = str(self.tmpdir) if onWindows() else self.tmpdir
+        if "PATH" not in env:
+            if onWindows():
+                env["PATH"] = str(os.environ["PATH"])
+            else:
+                env["PATH"] = os.environ["PATH"]
+        if "SYSTEMROOT" not in env and "SYSTEMROOT" in os.environ:
+            if onWindows():
+                env["SYSTEMROOT"] = str(os.environ["SYSTEMROOT"])
+            else:
+                env["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
+        return env
+
     def create_task_msg(self):
-        input_parameters = self.collect_input_parameters()
+        input_parameters = self.get_inputs()
         output_parameters = []
 
         if self.stdout is not None:
@@ -277,9 +214,9 @@ class TESTask(object):
 
         if self.stderr is not None:
             parameter = tes.Output(
-               name="stderr",
-               url=self.output2url(self.stderr),
-               path=self.output2path(self.stderr)
+                name="stderr",
+                url=self.output2url(self.stderr),
+                path=self.output2path(self.stderr)
             )
             output_parameters.append(parameter)
 
@@ -292,17 +229,25 @@ class TESTask(object):
             )
         )
 
-        container = self.find_docker_requirement()
-
+        container = self.get_container()
         cpus = None
         ram = None
         disk = None
-        for i in self.requirements:
+
+        for i in self.builder.requirements:
             if i.get("class", "NA") == "ResourceRequirement":
                 cpus = i.get("coresMin", i.get("coresMax", None))
                 ram = i.get("ramMin", i.get("ramMax", None))
-                ram = ram / 953.674 if ram is not None else None
                 disk = i.get("outdirMin", i.get("outdirMax", None))
+
+                if (cpus is None or isinstance(cpus, str)) or \
+                   (ram is None or isinstance(ram, str)) or \
+                   (disk is None or isinstance(disk, str)):
+                    raise UnsupportedRequirement(
+                        "cwl-tes does not support dynamic resource requests"
+                    )
+
+                ram = ram / 953.674 if ram is not None else None
                 disk = disk / 953.674 if disk is not None else None
             elif i.get("class", "NA") == "DockerRequirement":
                 if i.get("dockerOutputDirectory", None) is not None:
@@ -326,7 +271,7 @@ class TESTask(object):
                     stdout=self.output2path(self.stdout),
                     stderr=self.output2path(self.stderr),
                     stdin=self.stdin,
-                    env=self.environment
+                    env=self.get_envvars()
                 )
             ],
             inputs=input_parameters,
@@ -342,88 +287,126 @@ class TESTask(object):
         return create_body
 
     def run(self, runtimeContext):
-        # useful for debugging
         log.debug(
-            "[job %s] self.__dict__ in run() ----------------------" %
-            (self.name)
+            "[job %s] self.__dict__ in run() ----------------------",
+            self.name
         )
         log.debug(pformat(self.__dict__))
 
         task = self.create_task_msg()
 
         log.info(
-            "[job %s] CREATED TASK MSG----------------------" %
-            (self.name)
+            "[job %s] CREATED TASK MSG----------------------",
+            self.name
         )
         log.info(pformat(task))
 
         try:
-            task_id = self.tes_workflow.client.create_task(task)
+            self.id = self.client.create_task(task)
             log.info(
-                "[job %s] SUBMITTED TASK ----------------------" %
-                (self.name)
+                "[job %s] SUBMITTED TASK ----------------------",
+                self.name
             )
-            log.info("[job %s] task id: %s " % (self.name, task_id))
+            log.info("[job %s] task id: %s ", self.name, self.id)
         except Exception as e:
             log.error(
-                "[job %s] Failed to submit task to TES service:\n%s" %
-                (self.name, e)
+                "[job %s] Failed to submit task to TES service:\n%s",
+                self.name, e
             )
-            return WorkflowException(e)
+            raise WorkflowException(e)
 
-        def callback():
+        max_tries = 10
+        current_try = 1
+        while not self.is_done():
+            delay = 1.5 * current_try**2
+            time.sleep(
+                random.randint(
+                    round(
+                        delay -
+                        0.5 *
+                        delay),
+                    round(
+                        delay +
+                        0.5 *
+                        delay)))
+            log.debug(
+                "[job %s] POLLING %s", self.name, pformat(self.id)
+            )
             try:
-                outputs = self.collect_outputs(self.outdir)
-                cleaned_outputs = {}
-                for k, v in outputs.items():
-                    if isinstance(k, bytes):
-                        k = k.decode("utf8")
-                    if isinstance(v, bytes):
-                        v = v.decode("utf8")
-                    cleaned_outputs[k] = v
-                self.outputs = cleaned_outputs
-                self.output_callback(self.outputs, "success")
-            except WorkflowException as e:
-                log.error("[job %s] job error:\n%s" % (self.name, e))
-                self.output_callback({}, "permanentFail")
+                task = self.client.get_task(self.id, "MINIMAL")
+                self.state = task.state
             except Exception as e:
-                log.error("[job %s] job error:\n%s" % (self.name, e))
-                self.output_callback({}, "permanentFail")
-            finally:
-                if self.outputs is not None:
-                    log.info(
-                        "[job %s] OUTPUTS ------------------" %
-                        (self.name)
-                    )
-                    log.info(pformat(self.outputs))
-                self.cleanup(runtimeContext.rm_tmpdir)
+                log.error("[job %s] POLLING ERROR %s", self.name, e)
+                if current_try <= max_tries:
+                    current_try += 1
+                    continue
+                else:
+                    log.error("[job %s] MAX POLLING RETRIES EXCEEDED",
+                              self.name)
+                    break
 
-        poll = TESTaskPollThread(
-            jobname=self.name,
-            taskID=task_id,
-            client=self.tes_workflow.client,
-            callback=callback
-        )
+        try:
+            outputs = self.collect_outputs(self.outdir)
+            cleaned_outputs = {}
+            for k, v in outputs.items():
+                if isinstance(k, bytes):
+                    k = k.decode("utf8")
+                if isinstance(v, bytes):
+                    v = v.decode("utf8")
+                cleaned_outputs[k] = v
+                self.outputs = cleaned_outputs
+            self.output_callback(self.outputs, "success")
+        except WorkflowException as e:
+            log.error("[job %s] job error:\n%s", self.name, e)
+            self.output_callback({}, "permanentFail")
+        except Exception as e:
+            log.error("[job %s] job error:\n%s", self.name, e)
+            self.output_callback({}, "permanentFail")
+        finally:
+            if self.outputs is not None:
+                log.info(
+                    "[job %s] OUTPUTS ------------------",
+                    self.name
+                )
+                log.info(pformat(self.outputs))
+            self.cleanup(self.runtime_context.rm_tmpdir)
+        return
 
-        self.tes_workflow.add_thread(poll)
-        poll.start()
+    def is_done(self):
+        terminal_states = ["COMPLETE", "CANCELED", "EXECUTOR_ERROR",
+                           "SYSTEM_ERROR"]
+        if self.state in terminal_states:
+            log.info(
+                "[job %s] FINAL JOB STATE: %s ------------------",
+                self.name, self.state
+            )
+            if self.state != "COMPLETE":
+                log.error(
+                    "[job %s] task id: %s", self.name, self.id
+                )
+                log.error(
+                    "[job %s] logs: %s",
+                    self.name, self.client.get_task(self.id, "FULL").logs
+                )
+            return True
+        return False
 
     def cleanup(self, rm_tmpdir):
         log.debug(
-            "[job %s] STARTING CLEAN UP ------------------" %
-            (self.name)
+            "[job %s] STARTING CLEAN UP ------------------",
+            self.name
         )
         if self.stagedir and os.path.exists(self.stagedir):
             log.debug(
-                "[job %s] Removing input staging directory %s" %
-                (self.name, self.stagedir)
+                "[job %s] Removing input staging directory %s",
+                self.name, self.stagedir
             )
             shutil.rmtree(self.stagedir, True)
 
         if rm_tmpdir:
             log.debug(
-                "[job %s] Removing temporary directory %s" %
-                (self.name, self.tmpdir)
+                "[job %s] Removing temporary directory %s",
+                self.name, self.tmpdir
             )
             shutil.rmtree(self.tmpdir, True)
 
@@ -438,72 +421,3 @@ class TESTask(object):
         if path is not None:
             return self.fs_access.join(self.docker_workdir, path)
         return None
-
-
-class TESTaskPollThread(threading.Thread):
-
-    def __init__(self, jobname, taskID, client, callback, poll_interval=1,
-                 poll_retries=10):
-        super(TESTaskPollThread, self).__init__()
-        self.daemon = True
-        self.name = jobname
-        self.id = taskID
-        self.state = "UNKNOWN"
-        self.client = client
-        self.callback = callback
-        self.poll_interval = poll_interval
-        self.poll_retries = poll_retries
-
-    def run(self):
-        while not self.is_done(self.state):
-            time.sleep(self.poll_interval)
-            # slow down polling over time till it hits a max
-            # if self.poll_interval < 30:
-            #     self.poll_interval += 1
-            log.debug(
-                "[job %s] POLLING %s" %
-                (self.name, pformat(self.id))
-            )
-            try:
-                self.state = self.poll()
-            except Exception as e:
-                log.error("[job %s] POLLING ERROR %s" % (self.name, e))
-                if self.poll_retries > 0:
-                    self.poll_retries -= 1
-                    continue
-                else:
-                    log.error("[job %s] MAX POLLING RETRIES EXCEEDED" %
-                              (self.name))
-                    break
-
-        self.complete()
-
-    def poll(self):
-        task = self.client.get_task(self.id, "MINIMAL")
-        return task.state
-
-    def is_done(self, state):
-        terminal_states = ["COMPLETE", "CANCELED", "EXECUTOR_ERROR",
-                           "SYSTEM_ERROR"]
-        if state in terminal_states:
-            log.info(
-                "[job %s] FINAL JOB STATE: %s ------------------" %
-                (self.name, state)
-            )
-            if state != "COMPLETE":
-                log.error(
-                    "[job %s] task id: %s" % (self.name, self.id)
-                )
-                log.error(
-                    "[job %s] logs: %s" %
-                    (
-                        self.name,
-                        self.client.get_task(self.id, "FULL").logs
-                    )
-
-                )
-            return True
-        return False
-
-    def complete(self):
-        self.callback()

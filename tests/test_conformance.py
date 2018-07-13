@@ -19,7 +19,7 @@ class TestConformance(SimpleServerTest):
 
         cmd = [
             "cwltest", "--test", ctest_def, "--basedir", self.tmpdir,
-            "--tool", tool_entry, "-j", "20", "--",
+            "--tool", tool_entry, "-j", "20", "-n", "1-121,123-132", "--",
             "--tes=http://localhost:8000"
         ]
 
