@@ -188,16 +188,6 @@ class TESTask(JobBase):
                     env[key] = str(value) if onWindows() else value
         env["HOME"] = str(self.outdir) if onWindows() else self.outdir
         env["TMPDIR"] = str(self.tmpdir) if onWindows() else self.tmpdir
-        if "PATH" not in env:
-            if onWindows():
-                env["PATH"] = str(os.environ["PATH"])
-            else:
-                env["PATH"] = os.environ["PATH"]
-        if "SYSTEMROOT" not in env and "SYSTEMROOT" in os.environ:
-            if onWindows():
-                env["SYSTEMROOT"] = str(os.environ["SYSTEMROOT"])
-            else:
-                env["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
         return env
 
     def create_task_msg(self):

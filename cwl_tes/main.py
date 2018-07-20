@@ -103,7 +103,7 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
         "running CommandLineTools.  May be provided multiple "
         "times.",
         metavar="ENVVAR",
-        default=["PATH"],
+        default=[],
         dest="preserve_environment")
     envgroup.add_argument(
         "--preserve-entire-environment",
