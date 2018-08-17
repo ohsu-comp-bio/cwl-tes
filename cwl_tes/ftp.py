@@ -2,7 +2,7 @@
 from __future__ import absolute_import
 
 import fnmatch
-from ftplib import FTP_TLS
+import ftplib
 import logging
 import netrc
 import glob
@@ -23,18 +23,20 @@ else:
     from pathlib import PosixPath
 
 def abspath(src, basedir):  # type: (Text, Text) -> Text
+    """http(s):, file:, ftp:, and plain path aware absolute path"""
     if src.startswith(u"file://"):
-        ab = Text(uri_file_path(str(src)))
+        apath = Text(uri_file_path(str(src)))
     elif urllib.parse.urlsplit(src).scheme in ['http', 'https', 'ftp']:
         return src
     else:
         if basedir.startswith(u"file://"):
-            ab = src if os.path.isabs(src) else basedir+ '/'+ src
+            apath = src if os.path.isabs(src) else basedir+ '/'+ src
         else:
-            ab = src if os.path.isabs(src) else os.path.join(basedir, src)
-    return ab
+            apath = src if os.path.isabs(src) else os.path.join(basedir, src)
+    return apath
 
 class FtpFsAccess(StdFsAccess):
+    """Basic FTP access."""
     def __init__(self, basedir):  # type: (Text) -> None
         super(FtpFsAccess, self).__init__(basedir)
         self.cache = {}
@@ -44,7 +46,7 @@ class FtpFsAccess(StdFsAccess):
             _logger.warning(err)
             self.netrc = None
 
-    def _connect(self, url):  # type: (Text) -> Optional[FTP]
+    def _connect(self, url):  # type: (Text) -> Optional[ftplib.FTP]
         parse = parse = urllib.parse.urlparse(url)
         if parse.scheme == 'ftp':
             host = parse.netloc
@@ -62,7 +64,7 @@ class FtpFsAccess(StdFsAccess):
                 if self.cache[(host, user, passwd)].pwd():
                     sys.stderr.write("FTP cache hit")
                     return self.cache[(host, user, passwd)]
-            ftp = FTP_TLS()
+            ftp = ftplib.FTP_TLS()
             ftp.set_debuglevel(1 if _logger.isEnabledFor(logging.DEBUG) else 0)
             ftp.connect(host)
             ftp.login(user, passwd)
@@ -74,6 +76,8 @@ class FtpFsAccess(StdFsAccess):
         return abspath(p, self.basedir)
 
     def glob(self, pattern):  # type: (Text) -> List[Text]
+        if not self.basedir.startswith("ftp:"):
+            return super(FtpFsAccess, self).glob(pattern)
         return self._glob(pattern)
 
     def _glob0(self, basename, basepath):
@@ -88,7 +92,7 @@ class FtpFsAccess(StdFsAccess):
     def _glob1(self, pattern, basepath=None):
         try:
             names = self.listdir(basepath)
-        except Exception:
+        except ftplib.all_errors:
             return []
         if pattern[0] != '.':
             names = filter(lambda x: x[0] != '.', names)
@@ -97,7 +101,6 @@ class FtpFsAccess(StdFsAccess):
     def _glob(self, pattern, basepath=None):  # type: (Text) -> List[Text]
         if not basepath:
             basepath = self.basedir
-        # ftp = self._connect(basepath)
         dirname, basename = pattern.rsplit('/', 1)
         if not glob.has_magic(pattern):
             if basename:
@@ -123,12 +126,16 @@ class FtpFsAccess(StdFsAccess):
 
 
     def open(self, fn, mode):
+        if not self.basedir.startswith("ftp:"):
+            return super(FtpFsAccess, self).open(fn, mode)
         if 'r' in mode:
             return urllib.request.urlopen(fn)
         raise Exception('Write mode FTP not implemented')
 
     def exists(self, fn):  # type: (Text) -> bool
-        return os.path.exists(self._abs(fn))
+        if not self.basedir.startswith("ftp:"):
+            return super(FtpFsAccess, self).exists(fn)
+        return self.isfile(fn) or self.isdir(fn)
 
     def isfile(self, fn):  # type: (Text) -> bool
         ftp = self._connect(fn)
@@ -146,9 +153,13 @@ class FtpFsAccess(StdFsAccess):
         return super(FtpFsAccess, self).listdir(fn)
 
     def join(self, path, *paths):  # type: (Text, *Text) -> Text
-        if path.startswith('ftp'):
-            raise Exception('unimplemented')
+        if path.startswith('ftp:'):
+            if paths:
+                return path+'/'+'/'.join(paths)
+            return path
         return super(FtpFsAccess, self).join(path, *paths)
 
     def realpath(self, path):  # type: (Text) -> Text
+        if path.startswith('ftp:'):
+            return path
         return os.path.realpath(path)
