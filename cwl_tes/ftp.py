@@ -144,7 +144,13 @@ class FtpFsAccess(StdFsAccess):
         return super(FtpFsAccess, self).isfile(fn)
 
     def isdir(self, fn):  # type: (Text) -> bool
-        return bool(self.listdir(fn))
+        if fn.startswith('ftp:'):
+            try:
+                self.listdir(fn)
+                return True
+            except ftplib.all_errors:
+                return False
+        return super(FtpFsAccess, self).isdir(fn)
 
     def listdir(self, fn):  # type: (Text) -> List[Text]
         ftp = self._connect(fn)
