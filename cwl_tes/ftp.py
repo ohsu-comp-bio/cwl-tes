@@ -8,8 +8,7 @@ import netrc
 import glob
 import os
 import sys
-from typing import (IO, BinaryIO, List,  # pylint: disable=unused-import
-                    Text, Union, overload)
+from typing import List, Text  # noqa F401 # pylint: disable=unused-import
 
 from six.moves import urllib
 from schema_salad.ref_resolver import uri_file_path
@@ -17,10 +16,6 @@ from schema_salad.ref_resolver import uri_file_path
 from cwltool.stdfsaccess import StdFsAccess
 from cwltool.loghandler import _logger
 
-if sys.version_info < (3, 4):
-    from pathlib2 import PosixPath  # pylint: disable=import-error,unused-import
-else:
-    from pathlib import PosixPath
 
 def abspath(src, basedir):  # type: (Text, Text) -> Text
     """http(s):, file:, ftp:, and plain path aware absolute path"""
@@ -30,21 +25,27 @@ def abspath(src, basedir):  # type: (Text, Text) -> Text
         return src
     else:
         if basedir.startswith(u"file://"):
-            apath = src if os.path.isabs(src) else basedir+ '/'+ src
+            apath = src if os.path.isabs(src) else basedir + '/' + src
         else:
             apath = src if os.path.isabs(src) else os.path.join(basedir, src)
     return apath
+
 
 class FtpFsAccess(StdFsAccess):
     """Basic FTP access."""
     def __init__(self, basedir):  # type: (Text) -> None
         super(FtpFsAccess, self).__init__(basedir)
         self.cache = {}
+        self.netrc = None
         try:
-            self.netrc = netrc.netrc()
+            if 'HOME' in os.environ:
+                if os.path.exists(os.path.join(os.environ['HOME'], '.netrc')):
+                    self.netrc = netrc.netrc(
+                        os.path.join(os.environ['HOME'], '.netrc'))
+            elif os.path.exists(os.path.join(os.curdir, '.netrc')):
+                self.netrc = netrc.netrc(os.path.join(os.curdir, '.netrc'))
         except netrc.NetrcParseError as err:
-            _logger.warning(err)
-            self.netrc = None
+            _logger.debug(err)
 
     def _connect(self, url):  # type: (Text) -> Optional[ftplib.FTP]
         parse = parse = urllib.parse.urlparse(url)
@@ -55,7 +56,7 @@ class FtpFsAccess(StdFsAccess):
                 (user, host) = parse.netloc.split('@')
             if ':' in user:
                 (user, passwd) = user.split(':')
-            if not user:
+            if not user and self.netrc:
                 creds = self.netrc.authenticators(host)
                 if creds:
                     user = creds.login
@@ -123,7 +124,6 @@ class FtpFsAccess(StdFsAccess):
         for dirname in dirs:
             results.extend(glob_in_dir(dirname, basename))
         return results
-
 
     def open(self, fn, mode):
         if not self.basedir.startswith("ftp:"):
