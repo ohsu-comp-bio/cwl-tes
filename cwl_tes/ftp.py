@@ -7,7 +7,6 @@ import logging
 import netrc
 import glob
 import os
-import sys
 from typing import List, Text  # noqa F401 # pylint: disable=unused-import
 
 from six.moves import urllib
