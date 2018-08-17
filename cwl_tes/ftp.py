@@ -63,7 +63,7 @@ class FtpFsAccess(StdFsAccess):
                     passwd = creds.password
             if (host, user, passwd) in self.cache:
                 if self.cache[(host, user, passwd)].pwd():
-                    sys.stderr.write("FTP cache hit")
+                    logging.debug("FTP cache hit: %s@%s", user, host)
                     return self.cache[(host, user, passwd)]
             ftp = ftplib.FTP_TLS()
             ftp.set_debuglevel(1 if _logger.isEnabledFor(logging.DEBUG) else 0)
