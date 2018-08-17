@@ -16,7 +16,7 @@ from cwltool.resolver import ga4gh_tool_registries
 
 from .tes import make_tes_tool
 from .__init__ import __version__
-
+from .ftp import FtpFsAccess
 
 log = logging.getLogger("tes-backend")
 log.setLevel(logging.INFO)
@@ -76,10 +76,13 @@ def main(args=None):
     loading_context = cwltool.main.LoadingContext(vars(parsed_args))
     loading_context.construct_tool_object = functools.partial(
         make_tes_tool, url=parsed_args.tes)
+    runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
+    runtime_context.make_fs_access = FtpFsAccess
     return cwltool.main.main(
         args=parsed_args,
         executor=MultithreadedJobExecutor(),
         loadingContext=loading_context,
+        runtimeContext=runtime_context,
         versionfunc=versionstring,
         logger_handler=console
     )
