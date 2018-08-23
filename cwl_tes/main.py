@@ -6,6 +6,7 @@ import functools
 import signal
 import sys
 import logging
+import ftplib
 from typing import Text
 
 
@@ -63,11 +64,13 @@ def ftp_upload(base_url, fs_access, cwl_file):
     if basedir:
         target_path = basedir + '/' + basename
     ftp = fs_access._connect(base_url)
-    if not fs_access.isdir(base_url):
+    try:
         ftp.mkd(basedir)
-        if not fs_access.isdir(base_url):
-            raise Exception(
-                'Failed to create target directory "{}".'.format(base_url))
+    except ftplib.all_errors:
+        pass
+    if not fs_access.isdir(base_url):
+        raise Exception(
+            'Failed to create target directory "{}".'.format(base_url))
     cwl_file["location"] = base_url + '/' + basename
     cwl_file.pop("path", None)
     if fs_access.isfile(fs_access.join(base_url, basename)):

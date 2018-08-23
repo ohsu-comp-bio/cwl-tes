@@ -301,7 +301,8 @@ class TESTask(JobBase):
                    (ram is None or isinstance(ram, str)) or \
                    (disk is None or isinstance(disk, str)):
                     raise UnsupportedRequirement(
-                        "cwl-tes does not yet support dynamic resource requests"
+                        "cwl-tes does not yet support dynamic resource "
+                        "requests"
                     )
 
                 ram = ram / 953.674 if ram is not None else None
