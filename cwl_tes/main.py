@@ -45,12 +45,14 @@ def custom_init_job_order(*args, **kwargs):
     job_order_object = original_init_job_order(*args, **kwargs)
     remote_storage_url = kwargs.get('args', args[1]).remote_storage_url
     if remote_storage_url:
+        ftp_access = FtpFsAccess(os.curdir)
         visit_class(job_order_object, ("File"),
-                    functools.partial(ftp_upload, remote_storage_url))
+                    functools.partial(ftp_upload, remote_storage_url,
+                                      ftp_access))
     return job_order_object
 
 
-def ftp_upload(base_url, cwl_file):
+def ftp_upload(base_url, fs_access, cwl_file):
     if "path" not in cwl_file and not (
             "location" in cwl_file and cwl_file["location"].startswith(
                 "file:/")):
@@ -60,7 +62,6 @@ def ftp_upload(base_url, cwl_file):
     basedir = urllib.parse.urlparse(base_url).path
     if basedir:
         target_path = basedir + '/' + basename
-    fs_access = FtpFsAccess(os.curdir)
     if not fs_access.isdir(base_url):
         raise Exception('target url "{}" is not a direcory'.format(base_url))
     cwl_file["location"] = base_url + '/' + basename
