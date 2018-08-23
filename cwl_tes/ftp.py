@@ -47,7 +47,7 @@ class FtpFsAccess(StdFsAccess):
             _logger.debug(err)
 
     def _connect(self, url):  # type: (Text) -> Optional[ftplib.FTP]
-        parse = parse = urllib.parse.urlparse(url)
+        parse = urllib.parse.urlparse(url)
         if parse.scheme == 'ftp':
             host = parse.netloc
             user = passwd = ""
@@ -58,8 +58,7 @@ class FtpFsAccess(StdFsAccess):
             if not user and self.netrc:
                 creds = self.netrc.authenticators(host)
                 if creds:
-                    user = creds.login
-                    passwd = creds.password
+                    user, _, passwd = creds
             if (host, user, passwd) in self.cache:
                 if self.cache[(host, user, passwd)].pwd():
                     logging.debug("FTP cache hit: %s@%s", user, host)
@@ -139,7 +138,11 @@ class FtpFsAccess(StdFsAccess):
     def isfile(self, fn):  # type: (Text) -> bool
         ftp = self._connect(fn)
         if ftp:
-            return bool(ftp.size(urllib.parse.urlparse(fn).path))
+            try:
+                ftp.size(urllib.parse.urlparse(fn).path)
+                return True
+            except ftplib.all_errors:
+                return False
         return super(FtpFsAccess, self).isfile(fn)
 
     def isdir(self, fn):  # type: (Text) -> bool

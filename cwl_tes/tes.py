@@ -24,13 +24,14 @@ log = logging.getLogger("tes-backend")
 
 
 def make_tes_tool(spec, loading_context, url):
+    """cwl-tes specific factory for CWL Process generation."""
     if "class" in spec and spec["class"] == "CommandLineTool":
         return TESCommandLineTool(spec, loading_context, url)
-    else:
-        return default_make_tool(spec, loading_context)
+    return default_make_tool(spec, loading_context)
 
 
 class TESCommandLineTool(CommandLineTool):
+    """cwl-tes specific CommandLineTool."""
 
     def __init__(self, spec, loading_context, url):
         super(TESCommandLineTool, self).__init__(spec, loading_context)

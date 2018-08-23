@@ -11,8 +11,12 @@ from typing import Text
 
 import pkg_resources
 import cwltool.main
+from cwltool.main import init_job_order as original_init_job_order
 from cwltool.executors import MultithreadedJobExecutor
 from cwltool.resolver import ga4gh_tool_registries
+from cwltool.pathmapper import visit_class
+
+from six.moves import urllib
 
 from .tes import make_tes_tool
 from .__init__ import __version__
@@ -35,6 +39,38 @@ def versionstring():
     else:
         cwltool_ver = "unknown"
     return "%s %s with cwltool %s" % (sys.argv[0], __version__, cwltool_ver)
+
+
+def custom_init_job_order(*args, **kwargs):
+    job_order_object = original_init_job_order(*args, **kwargs)
+    remote_storage_url = kwargs.get('args', args[1]).remote_storage_url
+    if remote_storage_url:
+        visit_class(job_order_object, ("File"),
+                    functools.partial(ftp_upload, remote_storage_url))
+    return job_order_object
+
+
+def ftp_upload(base_url, cwl_file):
+    if "path" not in cwl_file and not (
+            "location" in cwl_file and cwl_file["location"].startswith(
+                "file:/")):
+        return
+    path = cwl_file.get("path", cwl_file["location"][6:])
+    target_path = basename = os.path.basename(path)
+    basedir = urllib.parse.urlparse(base_url).path
+    if basedir:
+        target_path = basedir + '/' + basename
+    fs_access = FtpFsAccess(os.curdir)
+    if not fs_access.isdir(base_url):
+        raise Exception('target url "{}" is not a direcory'.format(base_url))
+    cwl_file["location"] = base_url + '/' + basename
+    cwl_file.pop("path", None)
+    if fs_access.isfile(fs_access.join(base_url, basename)):
+        log.warning("FTP upload, file %s already exists", basename)
+        return
+    ftp = fs_access._connect(base_url)
+    with open(path, mode="rb") as source:
+        ftp.storbinary("STOR {}".format(target_path), source)
 
 
 def main(args=None):
@@ -78,6 +114,7 @@ def main(args=None):
         make_tes_tool, url=parsed_args.tes)
     runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
     runtime_context.make_fs_access = FtpFsAccess
+    cwltool.main.init_job_order = custom_init_job_order
     return cwltool.main.main(
         args=parsed_args,
         executor=MultithreadedJobExecutor(),
@@ -96,7 +133,7 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
     parser.add_argument("--outdir",
                         type=Text, default=os.path.abspath('.'),
                         help="Output directory, default current directory")
-
+    parser.add_argument("--remote-storage-url", type=str)
     envgroup = parser.add_mutually_exclusive_group()
     envgroup.add_argument(
         "--preserve-environment",
@@ -252,9 +289,7 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
 
     exgroup = parser.add_mutually_exclusive_group()
     exgroup.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Default logging")
+        "--verbose", action="store_true", help="Default logging")
     exgroup.add_argument(
         "--quiet",
         action="store_true",
