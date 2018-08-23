@@ -11,14 +11,20 @@ from pprint import pformat
 from typing import Any, Dict, List, Text, Union
 
 import tes
+from six.moves import urllib
 
+from schema_salad.ref_resolver import file_uri
+from schema_salad.sourceline import SourceLine
+from schema_salad import validate
 from cwltool.command_line_tool import CommandLineTool
 from cwltool.errors import WorkflowException, UnsupportedRequirement
 from cwltool.job import JobBase
 from cwltool.stdfsaccess import StdFsAccess
-from cwltool.utils import onWindows
+from cwltool.pathmapper import PathMapper, uri_file_path, MapperEnt
+from cwltool.utils import onWindows, convert_pathsep_to_unix
 from cwltool.workflow import default_make_tool
-from schema_salad.ref_resolver import file_uri
+
+from .ftp import abspath
 
 log = logging.getLogger("tes-backend")
 
@@ -38,9 +44,65 @@ class TESCommandLineTool(CommandLineTool):
         self.spec = spec
         self.url = url
 
-    def make_job_runner(self, runtime_context):
-        return functools.partial(TESTask, runtime_context=runtime_context,
+    def make_path_mapper(self, reffiles, stagedir, runtimeContext,
+                         separateDirs):
+        return TESPathMapper(reffiles, runtimeContext.basedir, stagedir,
+                             separateDirs)
+
+    def make_job_runner(self, runtimeContext):
+        return functools.partial(TESTask, runtime_context=runtimeContext,
                                  url=self.url, spec=self.spec)
+
+
+class TESPathMapper(PathMapper):
+
+    def visit(self, obj, stagedir, basedir, copy=False, staged=False):
+        tgt = convert_pathsep_to_unix(
+            os.path.join(stagedir, obj["basename"]))
+        if obj["location"] in self._pathmap:
+            return
+        if obj["class"] == "Directory":
+            if obj["location"].startswith("file://"):
+                log.warning("a file:// based Directory slipped through: %s",
+                            obj)
+                resolved = uri_file_path(obj["location"])
+            else:
+                resolved = obj["location"]
+            self._pathmap[obj["location"]] = MapperEnt(
+                resolved, tgt, "WritableDirectory" if copy else "Directory",
+                staged)
+            if obj["location"].startswith("file://"):
+                staged = False
+            self.visitlisting(
+                obj.get("listing", []), tgt, basedir, copy=copy, staged=staged)
+        elif obj["class"] == "File":
+            path = obj["location"]
+            abpath = abspath(path, basedir)
+            if "contents" in obj and obj["location"].startswith("_:"):
+                self._pathmap[obj["location"]] = MapperEnt(
+                    obj["contents"], tgt, "CreateFile", staged)
+            else:
+                with SourceLine(obj, "location", validate.ValidationException,
+                                log.isEnabledFor(logging.DEBUG)):
+                    deref = abpath
+                    if urllib.parse.urlsplit(deref).scheme in [
+                            'http', 'https', 'ftp']:
+                        pass
+                    else:
+                        raise Exception("unprocess File")
+                        # # Dereference symbolic links
+                        # st = os.lstat(deref)
+                        # while stat.S_ISLNK(st.st_mode):
+                        #     rl = os.readlink(deref)
+                        #     deref = rl if os.path.isabs(rl) else os.path.join
+                        #         os.path.dirname(deref), rl)
+                        #     st = os.lstat(deref)
+
+                    self._pathmap[path] = MapperEnt(
+                        deref, tgt, "WritableFile" if copy else "File", staged)
+                    self.visitlisting(
+                        obj.get("secondaryFiles", []), stagedir, basedir,
+                        copy=copy, staged=staged)
 
 
 class TESTask(JobBase):
@@ -99,14 +161,13 @@ class TESTask(JobBase):
                 content=d["contents"],
                 type=d["class"].upper()
             )
-        else:
-            return tes.Input(
-                name=name,
-                description="cwl_input:%s" % (name),
-                url=d["location"],
-                path=d["path"],
-                type=d["class"].upper()
-            )
+        return tes.Input(
+            name=name,
+            description="cwl_input:%s" % (name),
+            url=d["location"],
+            path=d["path"],
+            type=d["class"].upper()
+        )
 
     def parse_job_order(self, k, v, inputs):
         if isinstance(v, dict):
