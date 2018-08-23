@@ -112,7 +112,8 @@ def main(args=None):
 
     loading_context = cwltool.main.LoadingContext(vars(parsed_args))
     loading_context.construct_tool_object = functools.partial(
-        make_tes_tool, url=parsed_args.tes)
+        make_tes_tool, url=parsed_args.tes,
+        remote_storage_url=parsed_args.remote_storage_url)
     runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
     runtime_context.make_fs_access = FtpFsAccess
     cwltool.main.init_job_order = custom_init_job_order
