@@ -62,14 +62,17 @@ def ftp_upload(base_url, fs_access, cwl_file):
     basedir = urllib.parse.urlparse(base_url).path
     if basedir:
         target_path = basedir + '/' + basename
+    ftp = fs_access._connect(base_url)
     if not fs_access.isdir(base_url):
-        raise Exception('target url "{}" is not a direcory'.format(base_url))
+        ftp.mkd(basedir)
+        if not fs_access.isdir(base_url):
+            raise Exception(
+                'Failed to create target directory "{}".'.format(base_url))
     cwl_file["location"] = base_url + '/' + basename
     cwl_file.pop("path", None)
     if fs_access.isfile(fs_access.join(base_url, basename)):
         log.warning("FTP upload, file %s already exists", basename)
         return
-    ftp = fs_access._connect(base_url)
     with open(path, mode="rb") as source:
         ftp.storbinary("STOR {}".format(target_path), source)
 

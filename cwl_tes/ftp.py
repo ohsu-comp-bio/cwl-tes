@@ -46,22 +46,29 @@ class FtpFsAccess(StdFsAccess):
         except netrc.NetrcParseError as err:
             _logger.debug(err)
 
-    def _connect(self, url):  # type: (Text) -> Optional[ftplib.FTP]
+    def _parse_url(self, url):
+        # type: (Text) -> Tuple[Optional[Text], Optional[Text]]
         parse = urllib.parse.urlparse(url)
+        user = parse.username
+        passwd = parse.password
+        host = parse.netloc
+        path = parse.path
         if parse.scheme == 'ftp':
-            host = parse.netloc
-            user = passwd = ""
-            if '@' in parse.netloc:
-                (user, host) = parse.netloc.split('@')
-            if ':' in user:
-                (user, passwd) = user.split(':')
             if not user and self.netrc:
                 creds = self.netrc.authenticators(host)
                 if creds:
                     user, _, passwd = creds
+        if not user:
+            user = "anonymous"
+            passwd = "anonymous@"
+        return host, user, passwd, path
+
+    def _connect(self, url):  # type: (Text) -> Optional[ftplib.FTP]
+        parse = urllib.parse.urlparse(url)
+        if parse.scheme == 'ftp':
+            host, user, passwd, _ = self._parse_url(url)
             if (host, user, passwd) in self.cache:
                 if self.cache[(host, user, passwd)].pwd():
-                    logging.debug("FTP cache hit: %s@%s", user, host)
                     return self.cache[(host, user, passwd)]
             ftp = ftplib.FTP_TLS()
             ftp.set_debuglevel(1 if _logger.isEnabledFor(logging.DEBUG) else 0)
@@ -127,7 +134,9 @@ class FtpFsAccess(StdFsAccess):
         if not self.basedir.startswith("ftp:"):
             return super(FtpFsAccess, self).open(fn, mode)
         if 'r' in mode:
-            return urllib.request.urlopen(fn)
+            host, user, passwd, path = self._parse_url(fn)
+            return urllib.request.urlopen(
+                "ftp://{}:{}@{}/{}".format(user, passwd, host, path))
         raise Exception('Write mode FTP not implemented')
 
     def exists(self, fn):  # type: (Text) -> bool
