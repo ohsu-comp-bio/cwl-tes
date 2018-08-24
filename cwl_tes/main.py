@@ -7,17 +7,18 @@ import signal
 import sys
 import logging
 import ftplib
+import uuid
 from typing import Text
 
 
 import pkg_resources
+from six.moves import urllib
+
 import cwltool.main
 from cwltool.main import init_job_order as original_init_job_order
 from cwltool.executors import MultithreadedJobExecutor
 from cwltool.resolver import ga4gh_tool_registries
 from cwltool.pathmapper import visit_class
-
-from six.moves import urllib
 
 from .tes import make_tes_tool
 from .__init__ import __version__
@@ -43,17 +44,20 @@ def versionstring():
 
 
 def custom_init_job_order(*args, **kwargs):
+    """Uploads input Files to FTP and rewrite the input object."""
+    remote_storage_url = kwargs.pop('args', args[1]).remote_storage_url
+    ftp_access = kwargs.pop("ftp_fs_access", FtpFsAccess(os.curdir))
     job_order_object = original_init_job_order(*args, **kwargs)
-    remote_storage_url = kwargs.get('args', args[1]).remote_storage_url
     if remote_storage_url:
-        ftp_access = FtpFsAccess(os.curdir)
-        visit_class(job_order_object, ("File"),
-                    functools.partial(ftp_upload, remote_storage_url,
-                                      ftp_access))
+        remote_storage_url = ftp_access.join(remote_storage_url, "inputs")
+        visit_class(
+            job_order_object, ("File"), functools.partial(
+                ftp_upload, remote_storage_url, ftp_access))
     return job_order_object
 
 
 def ftp_upload(base_url, fs_access, cwl_file):
+    """Upload a File to the given FTP URL; update the location URL to match."""
     if "path" not in cwl_file and not (
             "location" in cwl_file and cwl_file["location"].startswith(
                 "file:/")):
@@ -63,9 +67,8 @@ def ftp_upload(base_url, fs_access, cwl_file):
     basedir = urllib.parse.urlparse(base_url).path
     if basedir:
         target_path = basedir + '/' + basename
-    ftp = fs_access._connect(base_url)
     try:
-        ftp.mkd(basedir)
+        fs_access.mkdir(base_url)
     except ftplib.all_errors:
         pass
     if not fs_access.isdir(base_url):
@@ -75,9 +78,10 @@ def ftp_upload(base_url, fs_access, cwl_file):
     cwl_file.pop("path", None)
     if fs_access.isfile(fs_access.join(base_url, basename)):
         log.warning("FTP upload, file %s already exists", basename)
-        return
-    with open(path, mode="rb") as source:
-        ftp.storbinary("STOR {}".format(target_path), source)
+    else:
+        ftp = fs_access._connect(base_url)
+        with open(path, mode="rb") as source:
+            ftp.storbinary("STOR {}".format(target_path), source)
 
 
 def main(args=None):
@@ -102,8 +106,8 @@ def main(args=None):
     if parsed_args.debug:
         log.setLevel(logging.DEBUG)
 
-    # setup signal handler
-    def signal_handler(*args):
+    def signal_handler(*args):  # pylint: disable=unused-argument
+        """setup signal handler"""
         log.info(
             "recieved control-c signal"
         )
@@ -116,13 +120,24 @@ def main(args=None):
         sys.exit(1)
     signal.signal(signal.SIGINT, signal_handler)
 
+    ftp_cache = {}
+
+    class CachingFtpFsAccess(FtpFsAccess):
+        """Ensures that the FTP connection cache is shared."""
+        def __init__(self, basedir):
+            super(CachingFtpFsAccess, self).__init__(basedir, ftp_cache)
+    ftp_fs_access = CachingFtpFsAccess(os.curdir)
+    if parsed_args.remote_storage_url:
+        parsed_args.remote_storage_url = ftp_fs_access.join(
+            parsed_args.remote_storage_url, str(uuid.uuid4()))
     loading_context = cwltool.main.LoadingContext(vars(parsed_args))
     loading_context.construct_tool_object = functools.partial(
         make_tes_tool, url=parsed_args.tes,
         remote_storage_url=parsed_args.remote_storage_url)
     runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
-    runtime_context.make_fs_access = FtpFsAccess
-    cwltool.main.init_job_order = custom_init_job_order
+    runtime_context.make_fs_access = CachingFtpFsAccess
+    cwltool.main.init_job_order = functools.partial(
+        custom_init_job_order, ftp_fs_access=ftp_fs_access)
     return cwltool.main.main(
         args=parsed_args,
         executor=MultithreadedJobExecutor(),

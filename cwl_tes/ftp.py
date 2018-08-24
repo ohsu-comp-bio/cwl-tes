@@ -32,9 +32,9 @@ def abspath(src, basedir):  # type: (Text, Text) -> Text
 
 class FtpFsAccess(StdFsAccess):
     """Basic FTP access."""
-    def __init__(self, basedir):  # type: (Text) -> None
+    def __init__(self, basedir, cache=None):  # type: (Text) -> None
         super(FtpFsAccess, self).__init__(basedir)
-        self.cache = {}
+        self.cache = cache or {}
         self.netrc = None
         try:
             if 'HOME' in os.environ:
@@ -155,13 +155,30 @@ class FtpFsAccess(StdFsAccess):
         return super(FtpFsAccess, self).isfile(fn)
 
     def isdir(self, fn):  # type: (Text) -> bool
-        if fn.startswith('ftp:'):
+        ftp = self._connect(fn)
+        if ftp:
             try:
-                self.listdir(fn)
+                cwd = ftp.pwd()
+                ftp.cwd(urllib.parse.urlparse(fn).path)
+                ftp.cwd(cwd)
                 return True
             except ftplib.all_errors:
                 return False
         return super(FtpFsAccess, self).isdir(fn)
+
+    def mkdir(self, url, recursive=True):
+        """Make the directory specified in the URL."""
+        ftp = self._connect(url)
+        path = urllib.parse.urlparse(url).path
+        if not recursive:
+            return ftp.mkd(path)
+        dirs = [d for d in path.split('/') if d != '']
+        for index, _ in enumerate(dirs):
+            try:
+                ftp.mkd("/".join(dirs[:index+1])+'/')
+            except ftplib.all_errors:
+                pass
+        return None
 
     def listdir(self, fn):  # type: (Text) -> List[Text]
         ftp = self._connect(fn)
