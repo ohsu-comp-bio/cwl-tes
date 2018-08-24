@@ -48,8 +48,11 @@ class TESCommandLineTool(CommandLineTool):
 
     def make_path_mapper(self, reffiles, stagedir, runtimeContext,
                          separateDirs):
-        return TESPathMapper(reffiles, runtimeContext.basedir, stagedir,
-                             separateDirs)
+        if self.remote_storage_url:
+            return TESPathMapper(reffiles, runtimeContext.basedir, stagedir,
+                                 separateDirs)
+        return super(TESCommandLineTool, self).make_path_mapper(
+            reffiles, stagedir, runtimeContext, separateDirs)
 
     def make_job_runner(self, runtimeContext):
         return functools.partial(TESTask, runtime_context=runtimeContext,
@@ -92,7 +95,7 @@ class TESPathMapper(PathMapper):
                             'http', 'https', 'ftp']:
                         pass
                     else:
-                        raise Exception("unprocess File")
+                        raise Exception("unprocessed File {}".format(obj))
                         # # Dereference symbolic links
                         # st = os.lstat(deref)
                         # while stat.S_ISLNK(st.st_mode):
