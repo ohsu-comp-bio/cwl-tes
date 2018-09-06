@@ -16,11 +16,11 @@ from six.moves import urllib
 
 import cwltool.main
 from cwltool.main import init_job_order as original_init_job_order
-from cwltool.executors import MultithreadedJobExecutor
+from cwltool.executors import MultithreadedJobExecutor, SingleJobExecutor
 from cwltool.resolver import ga4gh_tool_registries
 from cwltool.pathmapper import visit_class
 
-from .tes import make_tes_tool
+from .tes import make_tes_tool, TESPathMapper
 from .__init__ import __version__
 from .ftp import FtpFsAccess
 
@@ -136,11 +136,14 @@ def main(args=None):
         remote_storage_url=parsed_args.remote_storage_url)
     runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
     runtime_context.make_fs_access = CachingFtpFsAccess
+    runtime_context.path_mapper = TESPathMapper
     cwltool.main.init_job_order = functools.partial(
         custom_init_job_order, ftp_fs_access=ftp_fs_access)
+    executor = MultithreadedJobExecutor() if parsed_args.parallel \
+        else SingleJobExecutor()
     return cwltool.main.main(
         args=parsed_args,
-        executor=MultithreadedJobExecutor(),
+        executor=executor,
         loadingContext=loading_context,
         runtimeContext=runtime_context,
         versionfunc=versionstring,
@@ -429,6 +432,13 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
         type=str,
         default=None,
         help="Read process requirement overrides from file.")
+    exgroup = parser.add_mutually_exclusive_group()
+    exgroup.add_argument(
+        "--parallel", action="store_true", default=True,
+        help="Run jobs in parallel (the default)")
+    exgroup.add_argument(
+        "--serial", action="store_false", dest="parallel",
+        help="Run jobs in parallel (the default)")
 
     parser.add_argument(
         "workflow",

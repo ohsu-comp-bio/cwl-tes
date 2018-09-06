@@ -128,7 +128,7 @@ class FtpFsAccess(StdFsAccess):
         return results
 
     def open(self, fn, mode):
-        if not self.basedir.startswith("ftp:"):
+        if not fn.startswith("ftp:"):
             return super(FtpFsAccess, self).open(fn, mode)
         if 'r' in mode:
             host, user, passwd, path = self._parse_url(fn)
@@ -194,3 +194,18 @@ class FtpFsAccess(StdFsAccess):
         if path.startswith('ftp:'):
             return path
         return os.path.realpath(path)
+
+    def size(self, fn):
+        ftp = self._connect(fn)
+        if ftp:
+            try:
+                return ftp.size(fn)
+            except ftplib.all_errors:
+                host, user, passwd, path = self._parse_url(fn)
+                handle = urllib.request.urlopen(
+                    "ftp://{}:{}@{}/{}".format(user, passwd, host, path))
+                size = int(handle.info()['Content-length'])
+                handle.close()
+                return size
+
+        return super(FtpFsAccess, self).size(fn)
