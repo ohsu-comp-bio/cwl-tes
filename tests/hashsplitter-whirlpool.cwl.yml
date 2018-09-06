@@ -8,7 +8,7 @@ doc: "hash input through sha512"
 
 hints:
   - class: DockerRequirement
-    dockerPull: frapsoft/openssl
+    dockerPull: kubler/openssl
 
 inputs:
   - id: input

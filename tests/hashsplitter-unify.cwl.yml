@@ -7,31 +7,28 @@ class: CommandLineTool
 doc: "unify hashed values into a single output"
 
 hints:
-  - class: DockerRequirement
-    dockerPull: frapsoft/openssl
+  DockerRequirement:
+    dockerPull: frolvlad/alpine-bash
 
 inputs:  
-  - id: md5
+  md5:
     type: File
     inputBinding:
       position: 1
 
-  - id: sha
+  sha:
     type: File
     inputBinding:
       position: 2
 
-  - id: whirlpool
+  whirlpool:
     type: File
     inputBinding:
       position: 3
 
 outputs:
-  - id: output
-    type: File
-    streamable: True
-    outputBinding:
-      glob: unify
+  output:
+    type: stdout
 
 stdout: unify
 
