@@ -104,17 +104,14 @@ class FtpFsAccess(StdFsAccess):
             names = filter(lambda x: x[0] != '.', names)
         return fnmatch.filter(names, pattern)
 
-    def _glob(self, pattern, basepath=None):  # type: (Text) -> List[Text]
-        if not basepath:
-            basepath = self.basedir
+    def _glob(self, pattern):  # type: (Text) -> List[Text]
         dirname, basename = pattern.rsplit('/', 1)
         if not glob.has_magic(pattern):
             if basename:
-                if not pattern.endswith('/') and \
-                        self.isfile(self.join(basepath, pattern)):
+                if self.exists(pattern):
                     return [pattern]
             else:  # Patterns ending in slash should match only directories
-                if self.isdir(self.join(basepath, dirname)):
+                if self.isdir(dirname):
                     return [pattern]
             return []
         if not dirname:
