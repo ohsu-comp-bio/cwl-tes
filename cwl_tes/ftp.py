@@ -1,6 +1,7 @@
 """FTP support"""
 from __future__ import absolute_import
 
+import contextlib
 import fnmatch
 import ftplib
 import logging
@@ -9,6 +10,7 @@ import glob
 import os
 from typing import List, Text  # noqa F401 # pylint: disable=unused-import
 
+from six import PY2
 from six.moves import urllib
 from schema_salad.ref_resolver import uri_file_path
 
@@ -132,8 +134,11 @@ class FtpFsAccess(StdFsAccess):
             return super(FtpFsAccess, self).open(fn, mode)
         if 'r' in mode:
             host, user, passwd, path = self._parse_url(fn)
-            return urllib.request.urlopen(
+            handle = urllib.request.urlopen(
                 "ftp://{}:{}@{}/{}".format(user, passwd, host, path))
+            if PY2:
+                return contextlib.closing(handle)
+            return handle
         raise Exception('Write mode FTP not implemented')
 
     def exists(self, fn):  # type: (Text) -> bool
