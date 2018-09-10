@@ -8,6 +8,7 @@ import stat
 from builtins import str
 import shutil
 import functools
+import uuid
 from pprint import pformat
 from typing import Any, Dict, List, Text, Union
 
@@ -45,7 +46,11 @@ class TESCommandLineTool(CommandLineTool):
         super(TESCommandLineTool, self).__init__(spec, loading_context)
         self.spec = spec
         self.url = url
-        self.remote_storage_url = remote_storage_url
+        if remote_storage_url:
+            self.remote_storage_url = remote_storage_url + "/ouput_{}".format(
+                uuid.uuid4())
+        else:
+            self.remote_storage_url = ""
 
     def make_path_mapper(self, reffiles, stagedir, runtimeContext,
                          separateDirs):
