@@ -46,11 +46,7 @@ class TESCommandLineTool(CommandLineTool):
         super(TESCommandLineTool, self).__init__(spec, loading_context)
         self.spec = spec
         self.url = url
-        if remote_storage_url:
-            self.remote_storage_url = remote_storage_url + "/ouput_{}".format(
-                uuid.uuid4())
-        else:
-            self.remote_storage_url = ""
+        self.remote_storage_url = remote_storage_url
 
     def make_path_mapper(self, reffiles, stagedir, runtimeContext,
                          separateDirs):
@@ -61,9 +57,14 @@ class TESCommandLineTool(CommandLineTool):
             reffiles, stagedir, runtimeContext, separateDirs)
 
     def make_job_runner(self, runtimeContext):
+        if self.remote_storage_url:
+            remote_storage_url = self.remote_storage_url + "/ouput_{}".format(
+                uuid.uuid4())
+        else:
+            remote_storage_url = ""
         return functools.partial(TESTask, runtime_context=runtimeContext,
                                  url=self.url, spec=self.spec,
-                                 remote_storage_url=self.remote_storage_url)
+                                 remote_storage_url=remote_storage_url)
 
 
 class TESPathMapper(PathMapper):
