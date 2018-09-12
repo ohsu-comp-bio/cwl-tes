@@ -263,8 +263,10 @@ class TESTask(JobBase):
                 if key in vars_to_preserve and key not in env:
                     # On Windows, subprocess env can't handle unicode.
                     env[key] = str(value) if onWindows() else value
-        env["HOME"] = str(self.outdir) if onWindows() else self.outdir
-        env["TMPDIR"] = str(self.tmpdir) if onWindows() else self.tmpdir
+        env["HOME"] = str(self.builder.outdir) if onWindows() \
+                else self.builder.outdir
+        env["TMPDIR"] = str(self.builder.tmpdir) if onWindows() \
+                else self.builder.tmpdir
         return env
 
     def create_task_msg(self):
