@@ -33,7 +33,7 @@ def abspath(src, basedir):  # type: (Text, Text) -> Text
 
 
 class FtpFsAccess(StdFsAccess):
-    """Basic FTP access."""
+    """FTP access with upload."""
     def __init__(self, basedir, cache=None):  # type: (Text) -> None
         super(FtpFsAccess, self).__init__(basedir)
         self.cache = cache or {}
@@ -214,3 +214,8 @@ class FtpFsAccess(StdFsAccess):
                 return size
 
         return super(FtpFsAccess, self).size(fn)
+
+    def upload(self, file_handle, url):
+        """FtpFsAccess specific method to upload a file to the given URL."""
+        ftp = self._connect(url)
+        ftp.storbinary("STOR {}".format(self._parse_url(url)[3]), file_handle)

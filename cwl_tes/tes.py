@@ -264,9 +264,9 @@ class TESTask(JobBase):
                     # On Windows, subprocess env can't handle unicode.
                     env[key] = str(value) if onWindows() else value
         env["HOME"] = str(self.builder.outdir) if onWindows() \
-                else self.builder.outdir
+            else self.builder.outdir
         env["TMPDIR"] = str(self.builder.tmpdir) if onWindows() \
-                else self.builder.tmpdir
+            else self.builder.tmpdir
         return env
 
     def create_task_msg(self):

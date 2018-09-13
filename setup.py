@@ -43,7 +43,8 @@ setup(
         "cwltool==1.0.20180912090223",
         "future>=0.16.0",
         "py-tes>=0.2.0",
-        "requests>=2.14.2"
+        "requests>=2.14.2",
+        "typing_extensions"
     ],
     extras_require={
         "test": [

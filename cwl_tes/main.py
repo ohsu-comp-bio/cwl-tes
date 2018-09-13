@@ -1,3 +1,4 @@
+"""Main entrypoint for cwl-tes."""
 from __future__ import absolute_import, print_function, unicode_literals
 
 import argparse
@@ -8,14 +9,18 @@ import sys
 import logging
 import ftplib
 import uuid
-from typing import Text
-
+from typing import MutableMapping, MutableSequence
+from typing_extensions import Text
 
 import pkg_resources
 from six.moves import urllib
+from six import itervalues, StringIO
 
+from ruamel import yaml
+from schema_salad.sourceline import cmap
 import cwltool.main
-from cwltool.main import init_job_order as original_init_job_order
+from cwltool.builder import substitute
+from cwltool.process import scandeps, shortname
 from cwltool.executors import MultithreadedJobExecutor, SingleJobExecutor
 from cwltool.resolver import ga4gh_tool_registries
 from cwltool.pathmapper import visit_class
@@ -35,25 +40,13 @@ DEFAULT_TMP_PREFIX = "tmp"
 
 
 def versionstring():
+    """Determine our version."""
     pkg = pkg_resources.require("cwltool")
     if pkg:
         cwltool_ver = pkg[0].version
     else:
         cwltool_ver = "unknown"
     return "%s %s with cwltool %s" % (sys.argv[0], __version__, cwltool_ver)
-
-
-def custom_init_job_order(*args, **kwargs):
-    """Uploads input Files to FTP and rewrite the input object."""
-    remote_storage_url = kwargs.pop('args', args[1]).remote_storage_url
-    ftp_access = kwargs.pop("ftp_fs_access", FtpFsAccess(os.curdir))
-    job_order_object = original_init_job_order(*args, **kwargs)
-    if remote_storage_url:
-        remote_storage_url = ftp_access.join(remote_storage_url, "inputs")
-        visit_class(
-            job_order_object, ("File"), functools.partial(
-                ftp_upload, remote_storage_url, ftp_access))
-    return job_order_object
 
 
 def ftp_upload(base_url, fs_access, cwl_file):
@@ -63,10 +56,7 @@ def ftp_upload(base_url, fs_access, cwl_file):
                 "file:/")):
         return
     path = cwl_file.get("path", cwl_file["location"][6:])
-    target_path = basename = os.path.basename(path)
-    basedir = urllib.parse.urlparse(base_url).path
-    if basedir:
-        target_path = basedir + '/' + basename
+    basename = os.path.basename(path)
     try:
         fs_access.mkdir(base_url)
     except ftplib.all_errors:
@@ -79,12 +69,12 @@ def ftp_upload(base_url, fs_access, cwl_file):
     if fs_access.isfile(fs_access.join(base_url, basename)):
         log.warning("FTP upload, file %s already exists", basename)
     else:
-        ftp = fs_access._connect(base_url)
         with open(path, mode="rb") as source:
-            ftp.storbinary("STOR {}".format(target_path), source)
+            fs_access.upload(source, cwl_file["location"])
 
 
 def main(args=None):
+    """Main entrypoint for cwl-tes."""
     if args is None:
         args = sys.argv[1:]
 
@@ -137,10 +127,14 @@ def main(args=None):
     runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
     runtime_context.make_fs_access = CachingFtpFsAccess
     runtime_context.path_mapper = TESPathMapper
-    cwltool.main.init_job_order = functools.partial(
-        custom_init_job_order, ftp_fs_access=ftp_fs_access)
-    executor = MultithreadedJobExecutor() if parsed_args.parallel \
-        else SingleJobExecutor()
+    # cwltool.main.init_job_order = functools.partial(
+    #     custom_init_job_order, ftp_fs_access=ftp_fs_access)
+    executor = functools.partial(
+        tes_execute, job_executor=MultithreadedJobExecutor()
+        if parsed_args.parallel else SingleJobExecutor(),
+        loading_context=loading_context,
+        remote_storage_url=parsed_args.remote_storage_url,
+        ftp_access=ftp_fs_access)
     return cwltool.main.main(
         args=parsed_args,
         executor=executor,
@@ -149,6 +143,213 @@ def main(args=None):
         versionfunc=versionstring,
         logger_handler=console
     )
+
+
+def tes_execute(process,           # type: Process
+                job_order,         # type: Dict[Text, Any]
+                runtime_context,   # type: RuntimeContext
+                job_executor,      # type: JobExecutor
+                loading_context,   # type: LoadingContext
+                remote_storage_url,
+                ftp_access,
+                logger=log
+                ):  # type: (...) -> Tuple[Optional[Dict[Text, Any]], Text]
+    """
+    Upload to the remote_storage_url (if needed) and execute.
+
+    Adapted from:
+    https://github.com/curoverse/arvados/blob/2b0b06579199967eca3d44d955ad64195d2db3c3/sdk/cwl/arvados_cwl/__init__.py#L407
+    """
+    if remote_storage_url:
+        upload_workflow_deps_ftp(process, remote_storage_url, ftp_access)
+        # Reload tool object which may have been updated by
+        # upload_workflow_deps
+        # Don't validate this time because it will just print redundant errors.
+        loading_context = loading_context.copy()
+        loading_context.loader = process.doc_loader
+        loading_context.avsc_names = process.doc_schema
+        loading_context.metadata = process.metadata
+        loading_context.do_validate = False
+        process = loading_context.construct_tool_object(
+            process.doc_loader.idx[process.tool["id"]], loading_context)
+        job_order = upload_job_order_ftp(
+            process, job_order, remote_storage_url, ftp_access)
+
+    if not job_executor:
+        job_executor = MultithreadedJobExecutor()
+    return job_executor(process, job_order, runtime_context, logger)
+
+
+def upload_workflow_deps_ftp(process, remote_storage_url, ftp_access):
+    """
+    Ensure that all default files in this workflow are uploaded.
+
+    Adapted from:
+    https://github.com/curoverse/arvados/blob/2b0b06579199967eca3d44d955ad64195d2db3c3/sdk/cwl/arvados_cwl/runner.py#L292
+    """
+    document_loader = process.doc_loader
+
+    def upload_tool_deps(deptool):
+        if "id" in deptool:
+            upload_dependencies_ftp(document_loader, deptool, deptool["id"],
+                                    True, remote_storage_url, ftp_access)
+            document_loader.idx[deptool["id"]] = deptool
+    process.visit(upload_tool_deps)
+
+
+def upload_dependencies_ftp(document_loader, workflowobj, uri, loadref_run,
+                            remote_storage_url, ftp_access):
+    """
+    Upload the dependencies of the workflowobj document to an FTP location.
+
+    Does an in-place update of references in "workflowobj".
+    Use scandeps to find $import, $include, $schemas, run, File and Directory
+    fields that represent external references.
+    If workflowobj has an "id" field, this will reload the document to ensure
+    it is scanning the raw document prior to preprocessing.
+
+    Adapted from:
+    https://github.com/curoverse/arvados/blob/2b0b06579199967eca3d44d955ad64195d2db3c3/sdk/cwl/arvados_cwl/runner.py#L83
+    """
+    loaded = set()
+
+    def loadref(base, ref):
+        joined = document_loader.fetcher.urljoin(base, ref)
+        defrg, _ = urllib.parse.urldefrag(joined)
+        if defrg not in loaded:
+            loaded.add(defrg)
+            # Use fetch_text to get raw file (before preprocessing).
+            text = document_loader.fetch_text(defrg)
+            if isinstance(text, bytes):
+                text_io = StringIO(text.decode('utf-8'))
+            else:
+                text_io = StringIO(text)
+            return yaml.safe_load(text_io)
+        else:
+            return {}
+    if loadref_run:
+        loadref_fields = set(("$import", "run"))
+    else:
+        loadref_fields = set(("$import",))
+    scanobj = workflowobj
+    if "id" in workflowobj:
+        # Need raw file content (before preprocessing) to ensure
+        # that external references in $include and $mixin are captured.
+        scanobj = loadref("", workflowobj["id"])
+    scandeps(uri, scanobj, loadref_fields,
+             set(("$include", "$schemas", "location")),
+             loadref, urljoin=document_loader.fetcher.urljoin)
+
+    def visit_default(obj):
+        remove = [False]
+
+        def ensure_default_location(fileobj):
+            if "location" not in fileobj and "path" in fileobj:
+                fileobj["location"] = fileobj["path"]
+                del fileobj["path"]
+            if "location" in fileobj \
+                    and not ftp_access.exists(fileobj["location"]):
+                # Delete "default" from workflowobj
+                remove[0] = True
+        visit_class(obj["default"], ("File", "Directory"),
+                    ensure_default_location)
+        if remove[0]:
+            del obj["default"]
+    find_defaults(workflowobj, visit_default)
+
+    discovered = {}
+
+    def discover_default_secondary_files(obj):
+        discover_secondary_files(
+            obj["inputs"],
+            {shortname(t["id"]): t["default"] for t in obj["inputs"]
+             if "default" in t},
+            discovered)
+
+    visit_class(workflowobj, ("CommandLineTool", "Workflow"),
+                discover_default_secondary_files)
+    for entry in list(discovered.keys()):
+        # Only interested in discovered secondaryFiles which are local
+        # files that need to be uploaded.
+        if not entry.startswith("file:"):
+            del discovered[entry]
+
+    visit_class(workflowobj, ("File"), functools.partial(
+        ftp_upload, remote_storage_url, ftp_access))
+    visit_class(discovered, ("File"), functools.partial(
+        ftp_upload, remote_storage_url, ftp_access))
+
+
+def find_defaults(item, operation):
+    """
+    Find instances of a default field and apply the given operation.
+
+    Adapted from:
+    https://github.com/curoverse/arvados/blob/2b0b06579199967eca3d44d955ad64195d2db3c3/sdk/cwl/arvados_cwl/runner.py#L56
+    """
+    if isinstance(item, MutableSequence):
+        for entry in item:
+            find_defaults(entry, operation)
+    elif isinstance(item, MutableMapping):
+        if "default" in item:
+            operation(item)
+        else:
+            for entry in itervalues(item):
+                find_defaults(entry, operation)
+
+
+def discover_secondary_files(inputs, job_order, discovered=None):
+    """
+    Find secondaryFiles in the schema and transfer to the job_order.
+
+    Adapted from:
+    https://github.com/curoverse/arvados/blob/2b0b06579199967eca3d44d955ad64195d2db3c3/sdk/cwl/arvados_cwl/runner.py#L166
+    """
+    for typedef in inputs:
+        if shortname(typedef["id"]) in job_order \
+                and typedef.get("secondaryFiles"):
+            set_secondary(typedef, job_order[shortname(typedef["id"])],
+                          discovered)
+
+
+def set_secondary(typedef, fileobj, discovered):
+    """
+    Pull over missing secondaryFiles to the job object entry.
+
+    Adapted from:
+    https://github.com/curoverse/arvados/blob/2b0b06579199967eca3d44d955ad64195d2db3c3/sdk/cwl/arvados_cwl/runner.py#L67
+    """
+    if isinstance(fileobj, MutableMapping) and fileobj.get("class") == "File":
+        if "secondaryFiles" not in fileobj:
+            fileobj["secondaryFiles"] = cmap(
+                [{"location": substitute(fileobj["location"], sf),
+                  "class": "File"} for sf in typedef["secondaryFiles"]])
+            if discovered is not None:
+                discovered[fileobj["location"]] = fileobj["secondaryFiles"]
+    elif isinstance(fileobj, MutableSequence):
+        for entry in fileobj:
+            set_secondary(typedef, entry, discovered)
+
+
+def upload_job_order_ftp(process, job_order, remote_storage_url, ftp_access):
+    """
+    Upload local files referenced in the input object and return updated input
+    object with 'location' updated to new URIs.
+
+    Adapted from:
+    https://github.com/curoverse/arvados/blob/2b0b06579199967eca3d44d955ad64195d2db3c3/sdk/cwl/arvados_cwl/runner.py#L266
+    """
+    discover_secondary_files(process.tool["inputs"], job_order)
+    upload_dependencies_ftp(process.doc_loader, job_order,
+                            job_order.get("id", "#"), False,
+                            remote_storage_url, ftp_access)
+    if "id" in job_order:
+        del job_order["id"]
+    # Need to filter this out, gets added by cwltool when providing
+    # parameters on the command line.
+    if "job_order" in job_order:
+        del job_order["job_order"]
+    return job_order
 
 
 def arg_parser():  # type: () -> argparse.ArgumentParser
