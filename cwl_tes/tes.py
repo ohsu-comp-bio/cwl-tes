@@ -1,5 +1,6 @@
 from __future__ import absolute_import, print_function, unicode_literals
 
+import itertools
 import logging
 import os
 import random
@@ -10,7 +11,8 @@ import shutil
 import functools
 import uuid
 from pprint import pformat
-from typing import Any, Dict, List, Text, Union
+from typing import Any, Dict, List, MutableMapping, MutableSequence, Union
+from typing_extensions import Text
 
 import tes
 from six.moves import urllib
@@ -145,7 +147,6 @@ class TESTask(JobBase):
         self.fs_access = StdFsAccess(self.basedir)
 
         self.id = None
-        self.docker_workdir = '/var/spool/cwl'
         self.state = "UNKNOWN"
         self.poll_interval = 1
         self.poll_retries = 10
@@ -158,12 +159,14 @@ class TESTask(JobBase):
         if self.runtime_context.default_container:
             container = self.runtime_context.default_container
 
-        reqs = self.spec.get("requirements", []) + self.spec.get("hints", [])
-        for i in reqs:
-            if i.get("class", "NA") == "DockerRequirement":
-                container = i.get(
+        reqs = itertools.chain.from_iterable([
+            self.spec.get("requirements", []),
+            self.spec.get("hints", [])])
+        for req in reqs:
+            if req.get("class", "NA") == "DockerRequirement":
+                container = req.get(
                     "dockerPull",
-                    i.get("dockerImageId", default)
+                    req.get("dockerImageId", default)
                 )
         return container
 
@@ -185,7 +188,7 @@ class TESTask(JobBase):
         )
 
     def parse_job_order(self, k, v, inputs):
-        if isinstance(v, dict):
+        if isinstance(v, MutableMapping):
             if all([i in v for i in ["location", "path", "class"]]):
                 inputs.append(self.create_input(k, v))
 
@@ -195,15 +198,15 @@ class TESTask(JobBase):
 
             else:
                 for sk, sv in v.items():
-                    if isinstance(sv, dict):
+                    if isinstance(sv, MutableMapping):
                         self.parse_job_order(sk, sv, inputs)
 
                     else:
                         break
 
-        elif isinstance(v, list):
+        elif isinstance(v, MutableSequence):
             for i in range(len(v)):
-                if isinstance(v[i], dict):
+                if isinstance(v[i], MutableMapping):
                     self.parse_job_order("%s[%s]" % (k, i), v[i], inputs)
 
                 else:
@@ -233,8 +236,7 @@ class TESTask(JobBase):
                 ),
                 url=file_uri(loc),
                 path=self.fs_access.join(
-                    self.docker_workdir, item["basename"]
-                ),
+                    self.builder.outdir, item["basename"]),
                 type=item["class"].upper()
             )
             inputs.append(parameter)
@@ -293,7 +295,7 @@ class TESTask(JobBase):
             tes.Output(
                 name="workdir",
                 url=self.output2url(""),
-                path=self.docker_workdir,
+                path=self.builder.outdir,
                 type="DIRECTORY"
             )
         )
@@ -337,7 +339,7 @@ class TESTask(JobBase):
                 tes.Executor(
                     command=self.command_line,
                     image=container,
-                    workdir=self.docker_workdir,
+                    workdir=self.builder.outdir,
                     stdout=self.output2path(self.stdout),
                     stderr=self.output2path(self.stderr),
                     stdin=self.stdin,
@@ -431,6 +433,7 @@ class TESTask(JobBase):
                     v = v.decode("utf8")
                 cleaned_outputs[k] = v
                 self.outputs = cleaned_outputs
+            process_status = "success"
         except WorkflowException as e:
             log.error("[job %s] job error:\n%s", self.name, e)
             process_status = "permanentFail"
@@ -499,5 +502,5 @@ class TESTask(JobBase):
 
     def output2path(self, path):
         if path is not None:
-            return self.fs_access.join(self.docker_workdir, path)
+            return self.fs_access.join(self.builder.outdir, path)
         return None
