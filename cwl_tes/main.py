@@ -127,8 +127,6 @@ def main(args=None):
     runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
     runtime_context.make_fs_access = CachingFtpFsAccess
     runtime_context.path_mapper = TESPathMapper
-    # cwltool.main.init_job_order = functools.partial(
-    #     custom_init_job_order, ftp_fs_access=ftp_fs_access)
     executor = functools.partial(
         tes_execute, job_executor=MultithreadedJobExecutor()
         if parsed_args.parallel else SingleJobExecutor(),

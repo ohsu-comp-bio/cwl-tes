@@ -416,6 +416,9 @@ class TESTask(JobBase):
                     break
 
         try:
+            if self.state != "COMPLETE":
+                process_status = "permanentFail"
+                log.error("[job %s] job error:\n%s", self.name, self.state)
             if self.remote_storage_url:
                 outputs = self.collect_outputs(self.remote_storage_url)
             else:
@@ -428,14 +431,15 @@ class TESTask(JobBase):
                     v = v.decode("utf8")
                 cleaned_outputs[k] = v
                 self.outputs = cleaned_outputs
-            self.output_callback(self.outputs, "success")
         except WorkflowException as e:
             log.error("[job %s] job error:\n%s", self.name, e)
-            self.output_callback({}, "permanentFail")
+            process_status = "permanentFail"
         except Exception as e:
             log.error("[job %s] job error:\n%s", self.name, e)
-            self.output_callback({}, "permanentFail")
+            process_status = "permanentFail"
         finally:
+            with self.runtime_context.workflow_eval_lock:
+                self.output_callback(outputs, process_status)
             if self.outputs is not None:
                 log.info(
                     "[job %s] OUTPUTS ------------------",
