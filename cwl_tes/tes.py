@@ -418,6 +418,7 @@ class TESTask(JobBase):
                     break
 
         try:
+            process_status = None
             if self.state != "COMPLETE":
                 process_status = "permanentFail"
                 log.error("[job %s] job error:\n%s", self.name, self.state)
@@ -433,7 +434,8 @@ class TESTask(JobBase):
                     v = v.decode("utf8")
                 cleaned_outputs[k] = v
                 self.outputs = cleaned_outputs
-            process_status = "success"
+            if not process_status:
+                process_status = "success"
         except WorkflowException as e:
             log.error("[job %s] job error:\n%s", self.name, e)
             process_status = "permanentFail"
