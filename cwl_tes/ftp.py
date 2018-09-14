@@ -107,6 +107,8 @@ class FtpFsAccess(StdFsAccess):
         return fnmatch.filter(names, pattern)
 
     def _glob(self, pattern):  # type: (Text) -> List[Text]
+        if pattern.endswith("/."):
+            pattern = pattern[:-1]
         dirname, basename = pattern.rsplit('/', 1)
         if not glob.has_magic(pattern):
             if basename:
@@ -190,9 +192,13 @@ class FtpFsAccess(StdFsAccess):
 
     def join(self, path, *paths):  # type: (Text, *Text) -> Text
         if path.startswith('ftp:'):
-            if paths:
-                return path+'/'+'/'.join(paths)
-            return path
+            result = path
+            for extra_path in paths:
+                if extra_path.startswith('ftp:/'):
+                    result = extra_path
+                else:
+                    result = result + "/" + extra_path
+            return result
         return super(FtpFsAccess, self).join(path, *paths)
 
     def realpath(self, path):  # type: (Text) -> Text
