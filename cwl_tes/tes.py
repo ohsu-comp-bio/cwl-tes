@@ -148,6 +148,7 @@ class TESTask(JobBase):
 
         self.id = None
         self.state = "UNKNOWN"
+        self.exit_code = None
         self.poll_interval = 1
         self.poll_retries = 10
         self.client = tes.HTTPClient(url)
@@ -389,7 +390,7 @@ class TESTask(JobBase):
 
         max_tries = 10
         current_try = 1
-        exit_code = None
+        self.exit_code = None
         while not self.is_done():
             delay = 1.5 * current_try**2
             time.sleep(
@@ -407,10 +408,8 @@ class TESTask(JobBase):
                 self.state = task.state
                 log.debug(
                     "[job %s] POLLING %s, result: %s", self.name,
-                    pformat(self.id), task
+                    pformat(self.id), task.state
                 )
-                if isinstance(task.logs, list):
-                    exit_code = task.logs[-1].exit_code
             except Exception as e:
                 log.error("[job %s] POLLING ERROR %s", self.name, e)
                 if current_try <= max_tries:
@@ -423,7 +422,8 @@ class TESTask(JobBase):
 
         try:
             process_status = None
-            if self.state != "COMPLETE" and exit_code not in self.successCodes:
+            if self.state != "COMPLETE" \
+                    and self.exit_code not in self.successCodes:
                 process_status = "permanentFail"
                 log.error("[job %s] job error:\n%s", self.name, self.state)
             if self.remote_storage_url:
@@ -448,13 +448,14 @@ class TESTask(JobBase):
             process_status = "permanentFail"
         finally:
             if self.outputs is not None:
-                with self.runtime_context.workflow_eval_lock:
-                    self.output_callback(outputs, process_status)
-                log.info(
-                    "[job %s] OUTPUTS ------------------",
-                    self.name
-                )
-                log.info(pformat(self.outputs))
+                self.outputs = {}
+            with self.runtime_context.workflow_eval_lock:
+                self.output_callback(outputs, process_status)
+            log.info(
+                "[job %s] OUTPUTS ------------------",
+                self.name
+            )
+            log.info(pformat(self.outputs))
             self.cleanup(self.runtime_context.rm_tmpdir)
         return
 
@@ -470,10 +471,13 @@ class TESTask(JobBase):
                 log.error(
                     "[job %s] task id: %s", self.name, self.id
                 )
+                logs = self.client.get_task(self.id, "FULL").logs
                 log.error(
                     "[job %s] logs: %s",
-                    self.name, self.client.get_task(self.id, "FULL").logs
+                    self.name, logs
                 )
+                if isinstance(logs, list):
+                    self.exit_code = logs[-1].logs[-1].exit_code
             return True
         return False
 
