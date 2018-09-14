@@ -389,6 +389,7 @@ class TESTask(JobBase):
 
         max_tries = 10
         current_try = 1
+        exit_code = None
         while not self.is_done():
             delay = 1.5 * current_try**2
             time.sleep(
@@ -401,12 +402,15 @@ class TESTask(JobBase):
                         delay +
                         0.5 *
                         delay)))
-            log.debug(
-                "[job %s] POLLING %s", self.name, pformat(self.id)
-            )
             try:
                 task = self.client.get_task(self.id, "MINIMAL")
                 self.state = task.state
+                log.debug(
+                    "[job %s] POLLING %s, result: %s", self.name,
+                    pformat(self.id), task
+                )
+                if isinstance(task.logs, list):
+                    exit_code = task.logs[-1].exit_code
             except Exception as e:
                 log.error("[job %s] POLLING ERROR %s", self.name, e)
                 if current_try <= max_tries:
@@ -419,7 +423,7 @@ class TESTask(JobBase):
 
         try:
             process_status = None
-            if self.state != "COMPLETE":
+            if self.state != "COMPLETE" and exit_code not in self.successCodes:
                 process_status = "permanentFail"
                 log.error("[job %s] job error:\n%s", self.name, self.state)
             if self.remote_storage_url:
