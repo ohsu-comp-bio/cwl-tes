@@ -187,7 +187,8 @@ class FtpFsAccess(StdFsAccess):
     def listdir(self, fn):  # type: (Text) -> List[Text]
         ftp = self._connect(fn)
         if ftp:
-            return ftp.nlst(fn)
+            host, _, _, path = self._parse_url(fn)
+            return ["ftp://{}/{}".format(host, x) for x in ftp.nlst(path)]
         return super(FtpFsAccess, self).listdir(fn)
 
     def join(self, path, *paths):  # type: (Text, *Text) -> Text
