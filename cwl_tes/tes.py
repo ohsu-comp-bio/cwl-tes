@@ -60,7 +60,7 @@ class TESCommandLineTool(CommandLineTool):
 
     def make_job_runner(self, runtimeContext):
         if self.remote_storage_url:
-            remote_storage_url = self.remote_storage_url + "/ouput_{}".format(
+            remote_storage_url = self.remote_storage_url + "/output_{}".format(
                 uuid.uuid4())
         else:
             remote_storage_url = ""
@@ -443,9 +443,9 @@ class TESTask(JobBase):
             log.error("[job %s] job error:\n%s", self.name, e)
             process_status = "permanentFail"
         finally:
-            with self.runtime_context.workflow_eval_lock:
-                self.output_callback(outputs, process_status)
             if self.outputs is not None:
+                with self.runtime_context.workflow_eval_lock:
+                    self.output_callback(outputs, process_status)
                 log.info(
                     "[job %s] OUTPUTS ------------------",
                     self.name
