@@ -365,6 +365,8 @@ class TESTask(JobBase):
             self.name
         )
         log.debug(pformat(self.__dict__))
+        if not self.successCodes:
+            self.successCodes = [0]
 
         task = self.create_task_msg()
 
@@ -440,11 +442,10 @@ class TESTask(JobBase):
             self.outputs = cleaned_outputs
             if not process_status:
                 process_status = "success"
-        except WorkflowException as e:
-            log.error("[job %s] job error:\n%s", self.name, e)
-            process_status = "permanentFail"
-        except Exception as e:
-            log.error("[job %s] job error:\n%s", self.name, e)
+        except (WorkflowException, Exception) as err:
+            log.error("[job %s] job error:\n%s", self.name, err)
+            if log.isEnabledFor(logging.DEBUG):
+                log.exception(err)
             process_status = "permanentFail"
         finally:
             if self.outputs is None:
@@ -476,8 +477,10 @@ class TESTask(JobBase):
                     "[job %s] logs: %s",
                     self.name, logs
                 )
-                if isinstance(logs, list):
-                    self.exit_code = logs[-1].logs[-1].exit_code
+                if isinstance(logs, MutableSequence):
+                    last_log = logs[-1]
+                    if isinstance(last_log, tes.TaskLog):
+                        self.exit_code = last_log.logs[-1].exit_code
             return True
         return False
 
