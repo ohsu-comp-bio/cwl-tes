@@ -437,7 +437,7 @@ class TESTask(JobBase):
                 if isinstance(v, bytes):
                     v = v.decode("utf8")
                 cleaned_outputs[k] = v
-                self.outputs = cleaned_outputs
+            self.outputs = cleaned_outputs
             if not process_status:
                 process_status = "success"
         except WorkflowException as e:
@@ -447,7 +447,7 @@ class TESTask(JobBase):
             log.error("[job %s] job error:\n%s", self.name, e)
             process_status = "permanentFail"
         finally:
-            if self.outputs is not None:
+            if self.outputs is None:
                 self.outputs = {}
             with self.runtime_context.workflow_eval_lock:
                 self.output_callback(self.outputs, process_status)
