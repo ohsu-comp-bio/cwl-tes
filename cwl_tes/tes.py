@@ -450,7 +450,7 @@ class TESTask(JobBase):
             if self.outputs is not None:
                 self.outputs = {}
             with self.runtime_context.workflow_eval_lock:
-                self.output_callback(outputs, process_status)
+                self.output_callback(self.outputs, process_status)
             log.info(
                 "[job %s] OUTPUTS ------------------",
                 self.name
