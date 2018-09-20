@@ -230,12 +230,16 @@ class TESTask(JobBase):
             else:
                 loc = item["location"]
 
+            if urllib.parse.urlparse(loc).scheme:
+                url = loc
+            else:
+                url = file_uri(loc)
             parameter = tes.Input(
                 name=item["basename"],
                 description="InitialWorkDirRequirement:cwl_input:%s" % (
                     item["basename"]
                 ),
-                url=file_uri(loc),
+                url=url,
                 path=self.fs_access.join(
                     self.builder.outdir, item["basename"]),
                 type=item["class"].upper()
