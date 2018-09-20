@@ -483,7 +483,7 @@ class TESTask(JobBase):
                 )
                 if isinstance(logs, MutableSequence):
                     last_log = logs[-1]
-                    if isinstance(last_log, tes.TaskLog):
+                    if isinstance(last_log, tes.TaskLog) and last_log.logs:
                         self.exit_code = last_log.logs[-1].exit_code
             return True
         return False
