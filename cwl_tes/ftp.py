@@ -20,9 +20,10 @@ from cwltool.loghandler import _logger
 
 def abspath(src, basedir):  # type: (Text, Text) -> Text
     """http(s):, file:, ftp:, and plain path aware absolute path"""
-    if src.startswith(u"file://"):
+    scheme = urllib.parse.urlparse(src).scheme
+    if scheme == u"file":
         apath = Text(uri_file_path(str(src)))
-    elif urllib.parse.urlsplit(src).scheme in ['http', 'https', 'ftp']:
+    elif scheme:
         return src
     else:
         if basedir.startswith(u"file://"):
