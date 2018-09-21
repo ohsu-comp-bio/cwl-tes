@@ -433,7 +433,10 @@ class TESTask(JobBase):
                 process_status = "permanentFail"
                 log.error("[job %s] job error:\n%s", self.name, self.state)
             if self.remote_storage_url:
+                original_outdir = self.builder.outdir
+                self.builder.outdir = self.remote_storage_url
                 outputs = self.collect_outputs(self.remote_storage_url)
+                self.builder.outdir = original_outdir
             else:
                 outputs = self.collect_outputs(self.outdir)
             cleaned_outputs = {}

@@ -129,7 +129,7 @@ class FtpFsAccess(StdFsAccess):
             glob_in_dir = self._glob0
         results = []
         for dirname in dirs:
-            results.extend(glob_in_dir(dirname, basename))
+            results.extend(glob_in_dir(basename, dirname))
         return results
 
     def open(self, fn, mode):
