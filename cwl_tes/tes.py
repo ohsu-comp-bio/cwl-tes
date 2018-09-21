@@ -10,6 +10,7 @@ from builtins import str
 import shutil
 import functools
 import uuid
+from tempfile import NamedTemporaryFile
 from pprint import pformat
 from typing import Any, Dict, List, MutableMapping, MutableSequence, Union
 from typing_extensions import Text
@@ -20,11 +21,12 @@ from six.moves import urllib
 from schema_salad.ref_resolver import file_uri
 from schema_salad.sourceline import SourceLine
 from schema_salad import validate
-from cwltool.command_line_tool import CommandLineTool
+from cwltool.command_line_tool import CommandLineTool, ExpressionTool
 from cwltool.errors import WorkflowException, UnsupportedRequirement
 from cwltool.job import JobBase
 from cwltool.stdfsaccess import StdFsAccess
-from cwltool.pathmapper import PathMapper, uri_file_path, MapperEnt
+from cwltool.pathmapper import (PathMapper, uri_file_path, MapperEnt,
+                                downloadHttpFile)
 from cwltool.utils import onWindows, convert_pathsep_to_unix
 from cwltool.workflow import default_make_tool
 
@@ -38,6 +40,9 @@ def make_tes_tool(spec, loading_context, url, remote_storage_url):
     if "class" in spec and spec["class"] == "CommandLineTool":
         return TESCommandLineTool(
             spec, loading_context, url, remote_storage_url)
+    if "class" in spec and spec["class"] == "ExpressionTool":
+        if remote_storage_url:
+            return ExpressionTool(spec, loading_context)
     return default_make_tool(spec, loading_context)
 
 
@@ -53,8 +58,9 @@ class TESCommandLineTool(CommandLineTool):
     def make_path_mapper(self, reffiles, stagedir, runtimeContext,
                          separateDirs):
         if self.remote_storage_url:
-            return TESPathMapper(reffiles, runtimeContext.basedir, stagedir,
-                                 separateDirs)
+            return TESPathMapper(
+                reffiles, runtimeContext.basedir, stagedir, separateDirs,
+                runtimeContext.make_fs_access(self.remote_storage_url or ""))
         return super(TESCommandLineTool, self).make_path_mapper(
             reffiles, stagedir, runtimeContext, separateDirs)
 
@@ -70,6 +76,22 @@ class TESCommandLineTool(CommandLineTool):
 
 
 class TESPathMapper(PathMapper):
+
+    def __init__(self, reference_files, basedir, stagedir, separateDirs=True,
+                 fs_access=None):
+        self.fs_access = fs_access
+        super(TESPathMapper, self).__init__(reference_files, basedir, stagedir,
+                                            separateDirs)
+
+    def _download_ftp_file(self, path):
+        with NamedTemporaryFile(mode='wb', delete=False) as dest:
+            handle = self.fs_access.open(path, mode="rb")
+            chunk = "start"
+            while chunk:
+                chunk = handle.read(16384)
+                dest.write(chunk)
+            handle.close()
+            return dest.name
 
     def visit(self, obj, stagedir, basedir, copy=False, staged=False):
         tgt = convert_pathsep_to_unix(
@@ -101,8 +123,10 @@ class TESPathMapper(PathMapper):
                                 log.isEnabledFor(logging.DEBUG)):
                     deref = abpath
                     if urllib.parse.urlsplit(deref).scheme in [
-                            'http', 'https', 'ftp']:
-                        pass
+                            'http', 'https']:
+                        deref = downloadHttpFile(path)
+                    elif urllib.parse.urlsplit(deref).scheme == 'ftp':
+                        deref = self._download_ftp_file(path)
                     else:
                         log.warning("unprocessed File %s", obj)
                         # Dereference symbolic links

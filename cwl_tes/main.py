@@ -126,7 +126,8 @@ def main(args=None):
         remote_storage_url=parsed_args.remote_storage_url)
     runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
     runtime_context.make_fs_access = CachingFtpFsAccess
-    runtime_context.path_mapper = TESPathMapper
+    runtime_context.path_mapper = functools.partial(
+        TESPathMapper, fs_access=ftp_fs_access)
     executor = functools.partial(
         tes_execute, job_executor=MultithreadedJobExecutor()
         if parsed_args.parallel else SingleJobExecutor(),

@@ -153,7 +153,7 @@ class FtpFsAccess(StdFsAccess):
         ftp = self._connect(fn)
         if ftp:
             try:
-                ftp.size(urllib.parse.urlparse(fn).path)
+                self.size(fn)
                 return True
             except ftplib.all_errors:
                 return False
@@ -211,15 +211,18 @@ class FtpFsAccess(StdFsAccess):
     def size(self, fn):
         ftp = self._connect(fn)
         if ftp:
+            host, user, passwd, path = self._parse_url(fn)
             try:
-                return ftp.size(fn)
+                return ftp.size(path)
             except ftplib.all_errors:
                 host, user, passwd, path = self._parse_url(fn)
                 handle = urllib.request.urlopen(
                     "ftp://{}:{}@{}/{}".format(user, passwd, host, path))
-                size = int(handle.info()['Content-length'])
+                maybe_size = handle.info()['Content-length']
                 handle.close()
-                return size
+                if maybe_size:
+                    return int(maybe_size)
+                return None
 
         return super(FtpFsAccess, self).size(fn)
 
