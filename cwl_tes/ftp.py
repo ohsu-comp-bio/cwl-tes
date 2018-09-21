@@ -215,7 +215,6 @@ class FtpFsAccess(StdFsAccess):
             try:
                 return ftp.size(path)
             except ftplib.all_errors:
-                host, user, passwd, path = self._parse_url(fn)
                 handle = urllib.request.urlopen(
                     "ftp://{}:{}@{}/{}".format(user, passwd, host, path))
                 maybe_size = handle.info()['Content-length']

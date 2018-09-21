@@ -21,7 +21,7 @@ from six.moves import urllib
 from schema_salad.ref_resolver import file_uri
 from schema_salad.sourceline import SourceLine
 from schema_salad import validate
-from cwltool.command_line_tool import CommandLineTool, ExpressionTool
+from cwltool.command_line_tool import CommandLineTool
 from cwltool.errors import WorkflowException, UnsupportedRequirement
 from cwltool.job import JobBase
 from cwltool.stdfsaccess import StdFsAccess
@@ -40,9 +40,6 @@ def make_tes_tool(spec, loading_context, url, remote_storage_url):
     if "class" in spec and spec["class"] == "CommandLineTool":
         return TESCommandLineTool(
             spec, loading_context, url, remote_storage_url)
-    if "class" in spec and spec["class"] == "ExpressionTool":
-        if remote_storage_url:
-            return ExpressionTool(spec, loading_context)
     return default_make_tool(spec, loading_context)
 
 
