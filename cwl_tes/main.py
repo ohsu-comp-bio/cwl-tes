@@ -8,6 +8,7 @@ import signal
 import sys
 import logging
 import ftplib
+import jwt
 import uuid
 from typing import MutableMapping, MutableSequence
 from typing_extensions import Text
@@ -37,6 +38,9 @@ console = logging.StreamHandler()
 log.addHandler(console)
 
 DEFAULT_TMP_PREFIX = "tmp"
+ELIXIR_AAI_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyUt09EkKGW30jpggX1PYqrxuUw4Fo7a/uMiNvmy8CwBLfo+BgaI35Qi+ke/Dz9784CmNXjlIzNPFq+DUi+8pBDGAJ5hznfEoQI2TDzdiG7uIART4AEpLo9xCKrL1al37jrDmvgk98gbumnHsWKQb7KFRKHpIBvNVQ6v+z3nOQZ+fl1552S750ZSIfTXWXqlZohLVE9K8JwsM9i9z7h5EBU2cJkxPbFoZEs6zGMFEOohiAA99Nm7cW/3m3dCn+Nm5TJadEt/xR08b2GXhcg+tAC7qoBthpDFnUOrLbwvNWQIyE+Mch+z4+5LVTfElOGRem2tZaqYcMG/mY6EBra8pUwIDAQAB
+-----END PUBLIC KEY-----"""
 
 
 def versionstring():
@@ -91,6 +95,14 @@ def main(args=None):
         print("cwl-tes: error: argument --tes is required")
         return 1
 
+    if parsed_args.token:
+        print("Validate token:" + parsed_args.token)
+        try:
+            jwt.decode(parsed_args.token,
+                       parsed_args.token_public_key, algorithms=['RS256'])
+        except Exception as e:
+            raise Exception('Token is not valid')
+
     if parsed_args.quiet:
         log.setLevel(logging.WARN)
     if parsed_args.debug:
@@ -114,6 +126,7 @@ def main(args=None):
 
     class CachingFtpFsAccess(FtpFsAccess):
         """Ensures that the FTP connection cache is shared."""
+
         def __init__(self, basedir):
             super(CachingFtpFsAccess, self).__init__(basedir, ftp_cache)
     ftp_fs_access = CachingFtpFsAccess(os.curdir)
@@ -360,6 +373,9 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
                         type=Text, default=os.path.abspath('.'),
                         help="Output directory, default current directory")
     parser.add_argument("--remote-storage-url", type=str)
+    parser.add_argument("--token", type=str)
+    parser.add_argument("--token-public-key", type=str,
+                        default=ELIXIR_AAI_PUBLIC_KEY)
     envgroup = parser.add_mutually_exclusive_group()
     envgroup.add_argument(
         "--preserve-environment",

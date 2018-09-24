@@ -1,5 +1,6 @@
 cwltool==1.0.20180912090223
 future>=0.16.0
 requests>=2.18.2
+PyJWT
 py-tes>=0.2.1
 typing_extensions
