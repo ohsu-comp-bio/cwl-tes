@@ -1,6 +1,5 @@
 from __future__ import absolute_import, print_function, unicode_literals
 
-import itertools
 import logging
 import os
 import random
@@ -160,10 +159,7 @@ class TESTask(JobBase):
         self.spec = spec
         self.outputs = None
         self.inplace_update = False
-        if runtime_context.basedir is not None:
-            self.basedir = runtime_context.basedir
-        else:
-            self.basedir = os.getcwd()
+        self.basedir = runtime_context.basedir or os.getcwd()
         self.fs_access = StdFsAccess(self.basedir)
 
         self.id = None
@@ -175,19 +171,14 @@ class TESTask(JobBase):
         self.remote_storage_url = remote_storage_url
 
     def get_container(self):
-        default = "python:2.7"
+        default = self.runtime_context.default_container or "python:2.7"
         container = default
-        if self.runtime_context.default_container:
-            container = self.runtime_context.default_container
 
-        reqs = itertools.chain.from_iterable([
-            self.spec.get("requirements", []),
-            self.spec.get("hints", [])])
-        for req in reqs:
-            if req.get("class", "NA") == "DockerRequirement":
-                container = req.get(
+        docker_req, _ = self.get_requirement("DockerRequirement")
+        if docker_req:
+                container = docker_req.get(
                     "dockerPull",
-                    req.get("dockerImageId", default)
+                    docker_req.get("dockerImageId", default)
                 )
         return container
 
