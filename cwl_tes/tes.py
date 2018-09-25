@@ -326,26 +326,12 @@ class TESTask(JobBase):
         )
 
         container = self.get_container()
-        cpus = None
-        ram = None
-        disk = None
 
+        res_reqs = self.builder.resources
+        ram = res_reqs['ram'] / 953.674
+        disk = (res_reqs['outdirSize'] + res_reqs['tmpdirSize']) / 953.674
+        cpus = res_reqs['cores']
         for i in self.builder.requirements:
-            if i.get("class", "NA") == "ResourceRequirement":
-                cpus = i.get("coresMin", i.get("coresMax", None))
-                ram = i.get("ramMin", i.get("ramMax", None))
-                disk = i.get("outdirMin", i.get("outdirMax", None))
-
-                if (cpus is None or isinstance(cpus, str)) or \
-                   (ram is None or isinstance(ram, str)) or \
-                   (disk is None or isinstance(disk, str)):
-                    raise UnsupportedRequirement(
-                        "cwl-tes does not yet support dynamic resource "
-                        "requests"
-                    )
-
-                ram = ram / 953.674 if ram is not None else None
-                disk = disk / 953.674 if disk is not None else None
             elif i.get("class", "NA") == "DockerRequirement":
                 if i.get("dockerOutputDirectory", None) is not None:
                     output_parameters.append(
