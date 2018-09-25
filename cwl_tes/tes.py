@@ -331,17 +331,17 @@ class TESTask(JobBase):
         ram = res_reqs['ram'] / 953.674
         disk = (res_reqs['outdirSize'] + res_reqs['tmpdirSize']) / 953.674
         cpus = res_reqs['cores']
-        for i in self.builder.requirements:
-            elif i.get("class", "NA") == "DockerRequirement":
-                if i.get("dockerOutputDirectory", None) is not None:
-                    output_parameters.append(
-                        tes.Output(
-                            name="dockerOutputDirectory",
-                            url=self.output2url(""),
-                            path=i.get("dockerOutputDirectory"),
-                            type="DIRECTORY"
-                        )
-                    )
+
+        docker_req, _ = self.get_requirement("DockerRequirement")
+        if docker_req and hasattr(docker_req, "dockerOutputDirectory"):
+            output_parameters.append(
+                tes.Output(
+                    name="dockerOutputDirectory",
+                    url=self.output2url(""),
+                    path=docker_req.dockerOutputDirectory,
+                    type="DIRECTORY"
+                )
+            )
 
         create_body = tes.Task(
             name=self.name,
