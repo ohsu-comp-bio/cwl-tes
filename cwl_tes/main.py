@@ -49,14 +49,25 @@ def versionstring():
     return "%s %s with cwltool %s" % (sys.argv[0], __version__, cwltool_ver)
 
 
-def ftp_upload(base_url, fs_access, cwl_file):
-    """Upload a File to the given FTP URL; update the location URL to match."""
-    if "path" not in cwl_file and not (
-            "location" in cwl_file and cwl_file["location"].startswith(
+def ftp_upload(base_url, fs_access, cwl_obj):
+    # type: (Text, FtpFsAccess, Dict[Text, Any]) -> None
+    """
+    Upload a File or Directory to the given FTP URL;
+
+    Update the location URL to match.
+    """
+    if "path" not in cwl_obj and not (
+            "location" in cwl_obj and cwl_obj["location"].startswith(
                 "file:/")):
         return
-    path = cwl_file.get("path", cwl_file["location"][6:])
+    path = cwl_obj.get("path", cwl_obj["location"][6:])
+    is_dir = os.path.isdir(path)
     basename = os.path.basename(path)
+    dirname = os.path.dirname(path)
+    if is_dir and cwl_obj["class"] != "Directory":
+        raise ValueError("Passed a directory but Class is not Directory")
+    if not is_dir and cwl_obj["class"] != "File":
+        raise ValueError("Passed a file but Class is not File")
     try:
         fs_access.mkdir(base_url)
     except ftplib.all_errors:
@@ -64,13 +75,26 @@ def ftp_upload(base_url, fs_access, cwl_file):
     if not fs_access.isdir(base_url):
         raise Exception(
             'Failed to create target directory "{}".'.format(base_url))
-    cwl_file["location"] = base_url + '/' + basename
-    cwl_file.pop("path", None)
-    if fs_access.isfile(fs_access.join(base_url, basename)):
-        log.warning("FTP upload, file %s already exists", basename)
+    cwl_obj["location"] = base_url + '/' + basename
+    cwl_obj.pop("path", None)
+    if is_dir:
+        if fs_access.isdir(fs_access.join(base_url, basename)):
+            log.warning("FTP upload, Directory %s already exists", basename)
+        else:
+            for root, _subdirs, files in os.walk(path, followlinks=True):
+                root_path = base_url + '/' + root[len(dirname):]
+                fs_access.mkdir(root_path)
+                for each_file in files:
+                    with open(os.path.join(root,
+                                           each_file), mode="rb") as source:
+                        fs_access.upload(source, root_path + '/' + each_file)
+        cwl_obj.pop("listing", None)
     else:
-        with open(path, mode="rb") as source:
-            fs_access.upload(source, cwl_file["location"])
+        if fs_access.isfile(fs_access.join(base_url, basename)):
+            log.warning("FTP upload, file %s already exists", basename)
+        else:
+            with open(path, mode="rb") as source:
+                fs_access.upload(source, cwl_obj["location"])
 
 
 def main(args=None):
@@ -272,8 +296,11 @@ def upload_dependencies_ftp(document_loader, workflowobj, uri, loadref_run,
         # files that need to be uploaded.
         if not entry.startswith("file:"):
             del discovered[entry]
-
+    visit_class(workflowobj, ("Directory"), functools.partial(
+        ftp_upload, remote_storage_url, ftp_access))
     visit_class(workflowobj, ("File"), functools.partial(
+        ftp_upload, remote_storage_url, ftp_access))
+    visit_class(discovered, ("Directory"), functools.partial(
         ftp_upload, remote_storage_url, ftp_access))
     visit_class(discovered, ("File"), functools.partial(
         ftp_upload, remote_storage_url, ftp_access))
