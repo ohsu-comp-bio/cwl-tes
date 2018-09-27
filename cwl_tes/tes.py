@@ -429,9 +429,17 @@ class TESTask(JobBase):
                     and self.exit_code not in self.successCodes:
                 process_status = "permanentFail"
                 log.error("[job %s] job error:\n%s", self.name, self.state)
+            remote_cwl_output_json = False
+            if self.remote_storage_url:
+                remote_fs_access = runtimeContext.make_fs_access(
+                    self.remote_storage_url)
+                remote_cwl_output_json = remote_fs_access.exists(
+                    remote_fs_access.join(
+                        self.remote_storage_url, "cwl.output.json"))
             if self.remote_storage_url:
                 original_outdir = self.builder.outdir
-                self.builder.outdir = self.remote_storage_url
+                if not remote_cwl_output_json:
+                    self.builder.outdir = self.remote_storage_url
                 outputs = self.collect_outputs(self.remote_storage_url)
                 self.builder.outdir = original_outdir
             else:
