@@ -152,9 +152,11 @@ def main(args=None):
     runtime_context.make_fs_access = CachingFtpFsAccess
     runtime_context.path_mapper = functools.partial(
         TESPathMapper, fs_access=ftp_fs_access)
+    job_executor = MultithreadedJobExecutor() if parsed_args.parallel \
+        else SingleJobExecutor()
+    job_executor.max_ram = job_executor.max_cores = float("inf")
     executor = functools.partial(
-        tes_execute, job_executor=MultithreadedJobExecutor()
-        if parsed_args.parallel else SingleJobExecutor(),
+        tes_execute, job_executor=job_executor,
         loading_context=loading_context,
         remote_storage_url=parsed_args.remote_storage_url,
         ftp_access=ftp_fs_access)
