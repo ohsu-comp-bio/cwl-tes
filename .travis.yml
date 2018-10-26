@@ -16,5 +16,8 @@ script:
 after_failure:
   - echo "FUNNEL LOGS ----------"
   - cat ./tests/test_tmp/conformance_test_v1.0_*/funnel_log.txt
+branches:
+  only:
+    - master
 notifications:
   email: false

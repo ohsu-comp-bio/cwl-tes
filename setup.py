@@ -40,10 +40,11 @@ setup(
     packages=find_packages(),
     python_requires=">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, <4",
     install_requires=[
-        "cwltool==1.0.20180711112827",
+        "cwltool>=1.0.20180921163344",
         "future>=0.16.0",
         "py-tes>=0.2.0",
-        "requests>=2.14.2"
+        "requests>=2.14.2",
+        "typing_extensions"
     ],
     extras_require={
         "test": [
