@@ -217,10 +217,10 @@ class FtpFsAccess(StdFsAccess):
             except ftplib.all_errors:
                 handle = urllib.request.urlopen(
                     "ftp://{}:{}@{}/{}".format(user, passwd, host, path))
-                maybe_size = handle.info()['Content-length']
+                info = handle.info()
                 handle.close()
-                if maybe_size:
-                    return int(maybe_size)
+                if 'Content-length' in info:
+                    return int(info['Content-length'])
                 return None
 
         return super(FtpFsAccess, self).size(fn)

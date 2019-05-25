@@ -1,6 +1,5 @@
 from __future__ import absolute_import, print_function, unicode_literals
 
-import itertools
 import logging
 import os
 import random
@@ -84,12 +83,11 @@ class TESPathMapper(PathMapper):
 
     def _download_ftp_file(self, path):
         with NamedTemporaryFile(mode='wb', delete=False) as dest:
-            handle = self.fs_access.open(path, mode="rb")
-            chunk = "start"
-            while chunk:
-                chunk = handle.read(16384)
-                dest.write(chunk)
-            handle.close()
+            with self.fs_access.open(path, mode="rb") as handle:
+                chunk = "start"
+                while chunk:
+                    chunk = handle.read(16384)
+                    dest.write(chunk)
             return dest.name
 
     def visit(self, obj, stagedir, basedir, copy=False, staged=False):
@@ -164,10 +162,7 @@ class TESTask(JobBase):
         self.spec = spec
         self.outputs = None
         self.inplace_update = False
-        if runtime_context.basedir is not None:
-            self.basedir = runtime_context.basedir
-        else:
-            self.basedir = os.getcwd()
+        self.basedir = runtime_context.basedir or os.getcwd()
         self.fs_access = StdFsAccess(self.basedir)
 
         self.id = None
@@ -180,19 +175,14 @@ class TESTask(JobBase):
         self.token = token
 
     def get_container(self):
-        default = "python:2.7"
+        default = self.runtime_context.default_container or "python:2.7"
         container = default
-        if self.runtime_context.default_container:
-            container = self.runtime_context.default_container
 
-        reqs = itertools.chain.from_iterable([
-            self.spec.get("requirements", []),
-            self.spec.get("hints", [])])
-        for req in reqs:
-            if req.get("class", "NA") == "DockerRequirement":
-                container = req.get(
+        docker_req, _ = self.get_requirement("DockerRequirement")
+        if docker_req:
+                container = docker_req.get(
                     "dockerPull",
-                    req.get("dockerImageId", default)
+                    docker_req.get("dockerImageId", default)
                 )
         return container
 
@@ -331,36 +321,22 @@ class TESTask(JobBase):
         )
 
         container = self.get_container()
-        cpus = None
-        ram = None
-        disk = None
 
-        for i in self.builder.requirements:
-            if i.get("class", "NA") == "ResourceRequirement":
-                cpus = i.get("coresMin", i.get("coresMax", None))
-                ram = i.get("ramMin", i.get("ramMax", None))
-                disk = i.get("outdirMin", i.get("outdirMax", None))
+        res_reqs = self.builder.resources
+        ram = res_reqs['ram'] / 953.674
+        disk = (res_reqs['outdirSize'] + res_reqs['tmpdirSize']) / 953.674
+        cpus = res_reqs['cores']
 
-                if (cpus is None or isinstance(cpus, str)) or \
-                   (ram is None or isinstance(ram, str)) or \
-                   (disk is None or isinstance(disk, str)):
-                    raise UnsupportedRequirement(
-                        "cwl-tes does not yet support dynamic resource "
-                        "requests"
-                    )
-
-                ram = ram / 953.674 if ram is not None else None
-                disk = disk / 953.674 if disk is not None else None
-            elif i.get("class", "NA") == "DockerRequirement":
-                if i.get("dockerOutputDirectory", None) is not None:
-                    output_parameters.append(
-                        tes.Output(
-                            name="dockerOutputDirectory",
-                            url=self.output2url(""),
-                            path=i.get("dockerOutputDirectory"),
-                            type="DIRECTORY"
-                        )
-                    )
+        docker_req, _ = self.get_requirement("DockerRequirement")
+        if docker_req and hasattr(docker_req, "dockerOutputDirectory"):
+            output_parameters.append(
+                tes.Output(
+                    name="dockerOutputDirectory",
+                    url=self.output2url(""),
+                    path=docker_req.dockerOutputDirectory,
+                    type="DIRECTORY"
+                )
+            )
 
         create_body = tes.Task(
             name=self.name,
@@ -457,9 +433,17 @@ class TESTask(JobBase):
                     and self.exit_code not in self.successCodes:
                 process_status = "permanentFail"
                 log.error("[job %s] job error:\n%s", self.name, self.state)
+            remote_cwl_output_json = False
+            if self.remote_storage_url:
+                remote_fs_access = runtimeContext.make_fs_access(
+                    self.remote_storage_url)
+                remote_cwl_output_json = remote_fs_access.exists(
+                    remote_fs_access.join(
+                        self.remote_storage_url, "cwl.output.json"))
             if self.remote_storage_url:
                 original_outdir = self.builder.outdir
-                self.builder.outdir = self.remote_storage_url
+                if not remote_cwl_output_json:
+                    self.builder.outdir = self.remote_storage_url
                 outputs = self.collect_outputs(self.remote_storage_url)
                 self.builder.outdir = original_outdir
             else:
