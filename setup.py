@@ -43,6 +43,7 @@ setup(
         "cwltool>=1.0.20180921163344",
         "future>=0.16.0",
         "py-tes>=0.2.0",
+        "PyJWT>=1.6.4",
         "requests>=2.14.2",
         "typing_extensions"
     ],

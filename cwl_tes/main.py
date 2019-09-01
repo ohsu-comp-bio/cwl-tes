@@ -8,6 +8,7 @@ import signal
 import sys
 import logging
 import ftplib
+import jwt
 import uuid
 from typing import MutableMapping, MutableSequence
 from typing_extensions import Text
@@ -37,6 +38,7 @@ console = logging.StreamHandler()
 log.addHandler(console)
 
 DEFAULT_TMP_PREFIX = "tmp"
+DEFAULT_TOKEN_PUBLIC_KEY = os.environ.get('TOKEN_PUBLIC_KEY', '')
 
 
 def versionstring():
@@ -115,6 +117,13 @@ def main(args=None):
         print("cwl-tes: error: argument --tes is required")
         return 1
 
+    if parsed_args.token:
+        try:
+            jwt.decode(parsed_args.token,
+                       parsed_args.token_public_key.encode('utf-8').decode('unicode_escape'), algorithms=['RS256'])
+        except Exception as e:
+            raise Exception('Token is not valid')
+
     if parsed_args.quiet:
         log.setLevel(logging.WARN)
     if parsed_args.debug:
@@ -147,7 +156,8 @@ def main(args=None):
     loading_context = cwltool.main.LoadingContext(vars(parsed_args))
     loading_context.construct_tool_object = functools.partial(
         make_tes_tool, url=parsed_args.tes,
-        remote_storage_url=parsed_args.remote_storage_url)
+        remote_storage_url=parsed_args.remote_storage_url,
+        token=parsed_args.token)
     runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
     runtime_context.make_fs_access = CachingFtpFsAccess
     runtime_context.path_mapper = functools.partial(
@@ -389,6 +399,9 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
                         type=Text, default=os.path.abspath('.'),
                         help="Output directory, default current directory")
     parser.add_argument("--remote-storage-url", type=str)
+    parser.add_argument("--token", type=str)
+    parser.add_argument("--token-public-key", type=str,
+                        default=DEFAULT_TOKEN_PUBLIC_KEY)
     envgroup = parser.add_mutually_exclusive_group()
     envgroup.add_argument(
         "--preserve-environment",
