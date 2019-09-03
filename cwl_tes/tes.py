@@ -4,6 +4,7 @@ import logging
 import os
 import random
 import time
+import threading
 import stat
 from builtins import str
 import shutil
@@ -11,7 +12,8 @@ import functools
 import uuid
 from tempfile import NamedTemporaryFile
 from pprint import pformat
-from typing import Any, Dict, List, MutableMapping, MutableSequence, Union
+from typing import (Any, Callable, Dict, List, MutableMapping, MutableSequence,
+                    Optional, Union)
 from typing_extensions import Text
 
 import tes
@@ -20,8 +22,11 @@ from six.moves import urllib
 from schema_salad.ref_resolver import file_uri
 from schema_salad.sourceline import SourceLine
 from schema_salad import validate
+from cwltool.builder import Builder
 from cwltool.command_line_tool import CommandLineTool
+from cwltool.context import RuntimeContext
 from cwltool.errors import WorkflowException, UnsupportedRequirement
+from cwltool.expression import JSON
 from cwltool.job import JobBase
 from cwltool.stdfsaccess import StdFsAccess
 from cwltool.pathmapper import (PathMapper, uri_file_path, MapperEnt,
@@ -146,7 +151,7 @@ class TESTask(JobBase):
 
     def __init__(self,
                  builder,   # type: Builder
-                 joborder,  # type: JobOrderType
+                 joborder,  # type: JSON
                  make_path_mapper,  # type: Callable[..., PathMapper]
                  requirements,  # type: List[Dict[Text, Text]]
                  hints,  # type: List[Dict[Text, Text]]
@@ -180,10 +185,10 @@ class TESTask(JobBase):
 
         docker_req, _ = self.get_requirement("DockerRequirement")
         if docker_req:
-                container = docker_req.get(
-                    "dockerPull",
-                    docker_req.get("dockerImageId", default)
-                )
+            container = docker_req.get(
+                "dockerPull",
+                docker_req.get("dockerImageId", default)
+            )
         return container
 
     def create_input(self, name, d):
@@ -364,7 +369,10 @@ class TESTask(JobBase):
 
         return create_body
 
-    def run(self, runtimeContext):
+    def run(self,
+            runtimeContext,   # type: RuntimeContext
+            tmpdir_lock=None  # type: Optional[threading.Lock]
+            ):  # type: (...) -> None
         log.debug(
             "[job %s] self.__dict__ in run() ----------------------",
             self.name
@@ -444,10 +452,11 @@ class TESTask(JobBase):
                 original_outdir = self.builder.outdir
                 if not remote_cwl_output_json:
                     self.builder.outdir = self.remote_storage_url
-                outputs = self.collect_outputs(self.remote_storage_url)
+                outputs = self.collect_outputs(self.remote_storage_url,
+                                               self.exit_code)
                 self.builder.outdir = original_outdir
             else:
-                outputs = self.collect_outputs(self.outdir)
+                outputs = self.collect_outputs(self.outdir, self.exit_code)
             cleaned_outputs = {}
             for k, v in outputs.items():
                 if isinstance(k, bytes):

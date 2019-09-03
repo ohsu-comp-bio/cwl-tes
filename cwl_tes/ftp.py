@@ -13,6 +13,7 @@ from typing import List, Text  # noqa F401 # pylint: disable=unused-import
 from six import PY2
 from six.moves import urllib
 from schema_salad.ref_resolver import uri_file_path
+from typing import Tuple, Optional
 
 from cwltool.stdfsaccess import StdFsAccess
 from cwltool.loghandler import _logger

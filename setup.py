@@ -45,13 +45,13 @@ setup(
         "py-tes>=0.3.0",
         "PyJWT>=1.6.4",
         "requests>=2.14.2",
-        "typing_extensions"
+        "typing_extensions>=3.7.4"
     ],
     extras_require={
         "test": [
-            "cwltool>=1.0.20181201184214",
+            "cwltest>=1.0.20190228134645",
             "nose>=1.3.7",
-            "flake8>=3.5.0",
+            "flake8>=3.7.0",
             "PyYAML>=3.12"
         ]
     },
@@ -65,5 +65,6 @@ setup(
         "Programming Language :: Python :: 2.7",
         "Programming Language :: Python :: 3.5",
         "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
     ],
 )
