@@ -19,12 +19,16 @@ from six import itervalues, StringIO
 
 from ruamel import yaml
 from schema_salad.sourceline import cmap
+from typing import Any, Dict, Tuple, Optional
 import cwltool.main
 from cwltool.builder import substitute
+from cwltool.context import LoadingContext, RuntimeContext
 from cwltool.process import scandeps, shortname
-from cwltool.executors import MultithreadedJobExecutor, SingleJobExecutor
+from cwltool.executors import (MultithreadedJobExecutor, SingleJobExecutor,
+                               JobExecutor)
 from cwltool.resolver import ga4gh_tool_registries
 from cwltool.pathmapper import visit_class
+from cwltool.process import Process
 
 from .tes import make_tes_tool, TESPathMapper
 from .__init__ import __version__
@@ -119,9 +123,13 @@ def main(args=None):
 
     if parsed_args.token:
         try:
-            jwt.decode(parsed_args.token,
-                       parsed_args.token_public_key.encode('utf-8').decode('unicode_escape'), algorithms=['RS256'])
-        except Exception as e:
+            jwt.decode(
+                parsed_args.token,
+                parsed_args.token_public_key.encode('utf-8')
+                .decode('unicode_escape'),
+                algorithms=['RS256']
+            )
+        except Exception:
             raise Exception('Token is not valid')
 
     if parsed_args.quiet:
