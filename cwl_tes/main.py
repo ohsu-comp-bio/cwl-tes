@@ -30,6 +30,8 @@ from cwltool.resolver import ga4gh_tool_registries
 from cwltool.pathmapper import visit_class
 from cwltool.process import Process
 
+import tempfile
+
 from .tes import make_tes_tool, TESPathMapper
 from .__init__ import __version__
 from .ftp import FtpFsAccess
@@ -710,6 +712,50 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
 
     return parser
 
+def lib(workflow_buffer, inputs_buffer, workflow_type, endpoint):
+    """Main entrypoint for cwl-tes."""
+    ftp_cache = {}
+
+    temp_cwl = tempfile.NamedTemporaryFile()
+    temp_inputs = tempfile.NamedTemporaryFile()
+    with open(temp_cwl) as f:
+        f.write(workflow_buffer)
+    with open(temp_inputs) as f:
+        f.write(inputs_buffer)
+
+    class CachingFtpFsAccess(FtpFsAccess):
+        """Ensures that the FTP connection cache is shared."""
+        def __init__(self, basedir):
+            super(CachingFtpFsAccess, self).__init__(basedir, ftp_cache)
+    ftp_fs_access = CachingFtpFsAccess(os.curdir)
+   
+    loading_context = cwltool.main.LoadingContext({"workflow":temp_cwl.name, "job_order":temp_inputs.name})
+    loading_context.construct_tool_object = functools.partial(
+        make_tes_tool, url=endpoint,
+        remote_storage_url=None,
+        token=None,
+        lib=True)
+    runtime_context = cwltool.main.RuntimeContext()
+    runtime_context.make_fs_access = CachingFtpFsAccess
+    runtime_context.path_mapper = functools.partial(
+        TESPathMapper, fs_access=ftp_fs_access)
+    job_executor = SingleJobExecutor()
+    job_executor.max_ram = job_executor.max_cores = float("inf")
+    executor = functools.partial(
+        tes_execute, job_executor=job_executor,
+        loading_context=loading_context,
+        remote_storage_url=parsed_args.remote_storage_url,
+        ftp_access=ftp_fs_access)
+    return cwltool.main.main(
+        args=parsed_args,
+        executor=executor,
+        loadingContext=loading_context,
+        runtimeContext=runtime_context,
+        versionfunc=versionstring,
+        logger_handler=console
+    )
 
 if __name__ == "__main__":
     sys.exit(main())
+
+#Need to add temp file for cwl and inputs
