@@ -39,7 +39,8 @@ from .ftp import abspath
 log = logging.getLogger("tes-backend")
 
 
-def make_tes_tool(spec, loading_context, url, remote_storage_url, token, lib=None):
+def make_tes_tool(spec, loading_context, url, remote_storage_url, token,
+                  lib=None):
     """cwl-tes specific factory for CWL Process generation."""
     if "class" in spec and spec["class"] == "CommandLineTool":
         if lib:
@@ -54,7 +55,8 @@ def make_tes_tool(spec, loading_context, url, remote_storage_url, token, lib=Non
 class TESCommandLineTool(CommandLineTool):
     """cwl-tes specific CommandLineTool."""
 
-    def __init__(self, spec, loading_context, url, remote_storage_url, token, lib=None):
+    def __init__(self, spec, loading_context, url, remote_storage_url, token,
+                 lib=None):
         super(TESCommandLineTool, self).__init__(spec, loading_context)
         self.spec = spec
         self.url = url
@@ -186,7 +188,7 @@ class TESTask(JobBase):
         self.remote_storage_url = remote_storage_url
         self.token = token
 
-        self.lib= lib
+        self.lib = lib
 
     def get_container(self):
         default = self.runtime_context.default_container or "python:2.7"
@@ -421,7 +423,7 @@ class TESTask(JobBase):
                 self.name
             )
             log.info("[job %s] task id: %s ", self.name, self.id)
-            
+
         except Exception as e:
             log.error(
                 "[job %s] Failed to submit task to TES service:\n%s",

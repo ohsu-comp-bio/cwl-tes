@@ -712,8 +712,20 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
 
     return parser
 
-def lib(workflow_buffer, inputs_buffer, workflow_type, endpoint):
-    """Main entrypoint for cwl-tes."""
+
+def non_interactive_executor(workflow_buffer,
+                             inputs_buffer,
+                             workflow_type,
+                             endpoint,
+                             **kwargs):
+    class objectview(object):
+        def __init__(self, d):
+            self.__dict__ = d
+
+    parser = arg_parser()
+    parsed_args = parser.parse_args(objectview(kwargs))
+
+    """Importable function for running cwl commands asynchronously."""
     ftp_cache = {}
 
     temp_cwl = tempfile.NamedTemporaryFile()
@@ -728,8 +740,10 @@ def lib(workflow_buffer, inputs_buffer, workflow_type, endpoint):
         def __init__(self, basedir):
             super(CachingFtpFsAccess, self).__init__(basedir, ftp_cache)
     ftp_fs_access = CachingFtpFsAccess(os.curdir)
-   
-    loading_context = cwltool.main.LoadingContext({"workflow":temp_cwl.name, "job_order":temp_inputs.name})
+
+    loading_context = cwltool.main.LoadingContext(
+                      {"workflow": temp_cwl.name,
+                       "job_order": temp_inputs.name})
     loading_context.construct_tool_object = functools.partial(
         make_tes_tool, url=endpoint,
         remote_storage_url=None,
@@ -755,7 +769,8 @@ def lib(workflow_buffer, inputs_buffer, workflow_type, endpoint):
         logger_handler=console
     )
 
+
 if __name__ == "__main__":
     sys.exit(main())
 
-#Need to add temp file for cwl and inputs
+# Need to add temp file for cwl and inputs
