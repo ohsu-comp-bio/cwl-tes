@@ -40,7 +40,7 @@ setup(
     packages=find_packages(),
     python_requires=">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, <4",
     install_requires=[
-        "cwltool>=1.0.20181201184214",
+        "cwltool==1.0.20191022103248",
         "future>=0.16.0",
         "py-tes>=0.3.0",
         "PyJWT>=1.6.4",
