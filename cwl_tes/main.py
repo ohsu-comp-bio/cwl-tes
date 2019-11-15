@@ -731,8 +731,8 @@ def non_interactive_executor(workflow_buffer,
     temp_cwl = tempfile.NamedTemporaryFile()
     temp_inputs = tempfile.NamedTemporaryFile()
 
-    temp_cwl.write(workflow_buffer.encode())
-    temp_inputs.write(inputs_buffer.encode())
+    temp_cwl.write(workflow_buffer)
+    temp_inputs.write(inputs_buffer)
 
     class CachingFtpFsAccess(FtpFsAccess):
         """Ensures that the FTP connection cache is shared."""
