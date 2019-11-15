@@ -735,7 +735,9 @@ def non_interactive_executor(workflow_buffer,
     print(workflow_buffer)
     print("HHHHHHHHHHHHHH")
     temp_cwl.write(workflow_buffer)
+    temp_cwl.flush()
     temp_inputs.write(inputs_buffer)
+    temp_inputs.flush()
     args = (temp_inputs.name,) + args
     args = (temp_cwl.name,) + args
     parser = arg_parser()
