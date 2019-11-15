@@ -741,7 +741,7 @@ def non_interactive_executor(workflow_buffer,
     ftp_fs_access = CachingFtpFsAccess(os.curdir)
 
     loading_context = cwltool.main.LoadingContext(
-                      {"workflow": temp_cwl.name,
+                      **{"workflow": temp_cwl.name,
                        "job_order": temp_inputs.name})
     loading_context.construct_tool_object = functools.partial(
         make_tes_tool, url=endpoint,
