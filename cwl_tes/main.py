@@ -717,13 +717,13 @@ def non_interactive_executor(workflow_buffer,
                              inputs_buffer,
                              workflow_type,
                              endpoint,
-                             **kwargs):
+                             *args):
     class objectview(object):
         def __init__(self, d):
             self.__dict__ = d
 
     parser = arg_parser()
-    parsed_args = parser.parse_args(objectview(kwargs))
+    parsed_args = parser.parse_args(args)
 
     """Importable function for running cwl commands asynchronously."""
     ftp_cache = {}
