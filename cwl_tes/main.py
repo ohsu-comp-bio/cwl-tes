@@ -730,9 +730,14 @@ def non_interactive_executor(workflow_buffer,
 
     temp_cwl = tempfile.NamedTemporaryFile()
     temp_inputs = tempfile.NamedTemporaryFile()
-
+#**{"workflow": temp_cwl.name,
+#                       "job_order": temp_inputs.name}
     temp_cwl.write(workflow_buffer)
     temp_inputs.write(inputs_buffer)
+    args.insert(0, temp_inputs.name)
+    args.insert(0, temp_cwl.name)
+    parser = arg_parser()
+    parsed_args = parser.parse_args(args)
 
     class CachingFtpFsAccess(FtpFsAccess):
         """Ensures that the FTP connection cache is shared."""
@@ -740,9 +745,7 @@ def non_interactive_executor(workflow_buffer,
             super(CachingFtpFsAccess, self).__init__(basedir, ftp_cache)
     ftp_fs_access = CachingFtpFsAccess(os.curdir)
 
-    loading_context = cwltool.main.LoadingContext(
-                      **{"workflow": temp_cwl.name,
-                       "job_order": temp_inputs.name})
+    loading_context = cwltool.main.LoadingContext()
     loading_context.construct_tool_object = functools.partial(
         make_tes_tool, url=endpoint,
         remote_storage_url=None,
