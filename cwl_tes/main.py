@@ -776,7 +776,6 @@ def non_interactive_executor(workflow_buffer,
         versionfunc=versionstring,
         logger_handler=console
     )
-    print(lib_helper.task_id)
     return lib_helper.task_id
 
 
