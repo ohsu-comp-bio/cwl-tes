@@ -733,8 +733,7 @@ def non_interactive_executor(workflow_buffer,
 
     temp_cwl = tempfile.NamedTemporaryFile()
     temp_inputs = tempfile.NamedTemporaryFile()
-#**{"workflow": temp_cwl.name,
-#                       "job_order": temp_inputs.name}
+
     temp_cwl.write(workflow_buffer)
     temp_cwl.flush()
     temp_inputs.write(inputs_buffer)

@@ -45,7 +45,8 @@ def make_tes_tool(spec, loading_context, url, remote_storage_url, token,
     if "class" in spec and spec["class"] == "CommandLineTool":
         if lib:
             return TESCommandLineTool(
-                spec, loading_context, url, remote_storage_url, token, lib, lib_helper)
+                spec, loading_context, url, remote_storage_url, token,
+                lib, lib_helper)
         else:
             return TESCommandLineTool(
                 spec, loading_context, url, remote_storage_url, token)
@@ -413,7 +414,7 @@ class TESTask(JobBase):
                 )
                 log.info("[job %s] task id: %s ", self.name, self.id)
                 self.lib_helper(self.id)
-                return 
+                return
             except Exception as e:
                 log.error(
                     "[job %s] Failed to submit task to TES service:\n%s",
