@@ -40,12 +40,12 @@ log = logging.getLogger("tes-backend")
 
 
 def make_tes_tool(spec, loading_context, url, remote_storage_url, token,
-                  lib=None):
+                  lib=None, lib_helper=None):
     """cwl-tes specific factory for CWL Process generation."""
     if "class" in spec and spec["class"] == "CommandLineTool":
         if lib:
             return TESCommandLineTool(
-                spec, loading_context, url, remote_storage_url, token, lib)
+                spec, loading_context, url, remote_storage_url, token, lib, lib_helper)
         else:
             return TESCommandLineTool(
                 spec, loading_context, url, remote_storage_url, token)
@@ -56,13 +56,14 @@ class TESCommandLineTool(CommandLineTool):
     """cwl-tes specific CommandLineTool."""
 
     def __init__(self, spec, loading_context, url, remote_storage_url, token,
-                 lib=None):
+                 lib=None, lib_helper=None):
         super(TESCommandLineTool, self).__init__(spec, loading_context)
         self.spec = spec
         self.url = url
         self.remote_storage_url = remote_storage_url
         self.token = token
         self.lib = lib
+        self.lib_helper = lib_helper
 
     def make_path_mapper(self, reffiles, stagedir, runtimeContext,
                          separateDirs):
@@ -83,7 +84,8 @@ class TESCommandLineTool(CommandLineTool):
                                  url=self.url, spec=self.spec,
                                  remote_storage_url=remote_storage_url,
                                  token=self.token,
-                                 lib=self.lib)
+                                 lib=self.lib,
+                                 lib_helper=self.lib_helper)
 
 
 class TESPathMapper(PathMapper):
@@ -169,7 +171,8 @@ class TESTask(JobBase):
                  spec,
                  remote_storage_url=None,
                  token=None,
-                 lib=None):
+                 lib=None,
+                 lib_helper=None):
         super(TESTask, self).__init__(builder, joborder, make_path_mapper,
                                       requirements, hints, name)
         self.runtime_context = runtime_context
@@ -189,6 +192,7 @@ class TESTask(JobBase):
         self.token = token
 
         self.lib = lib
+        self.lib_helper = lib_helper
 
     def get_container(self):
         default = self.runtime_context.default_container or "python:2.7"
@@ -408,7 +412,8 @@ class TESTask(JobBase):
                     self.name
                 )
                 log.info("[job %s] task id: %s ", self.name, self.id)
-                return self.id
+                self.lib_helper(self.id)
+                return 
             except Exception as e:
                 log.error(
                     "[job %s] Failed to submit task to TES service:\n%s",

@@ -718,9 +718,12 @@ def non_interactive_executor(workflow_buffer,
                              workflow_type,
                              endpoint,
                              *args):
-    class objectview(object):
-        def __init__(self, d):
-            self.__dict__ = d
+    class lib_helper():
+        task_id = None
+
+        @classmethod
+        def helper(cls, task_id):
+            cls.task_id = task_id
 
     parser = arg_parser()
     parsed_args = parser.parse_args(args)
@@ -732,8 +735,6 @@ def non_interactive_executor(workflow_buffer,
     temp_inputs = tempfile.NamedTemporaryFile()
 #**{"workflow": temp_cwl.name,
 #                       "job_order": temp_inputs.name}
-    print(workflow_buffer)
-    print("HHHHHHHHHHHHHH")
     temp_cwl.write(workflow_buffer)
     temp_cwl.flush()
     temp_inputs.write(inputs_buffer)
@@ -754,7 +755,8 @@ def non_interactive_executor(workflow_buffer,
         make_tes_tool, url=endpoint,
         remote_storage_url=None,
         token=None,
-        lib=True)
+        lib=True,
+        lib_helper=lib_helper.helper)
     runtime_context = cwltool.main.RuntimeContext()
     runtime_context.make_fs_access = CachingFtpFsAccess
     runtime_context.path_mapper = functools.partial(
@@ -766,7 +768,7 @@ def non_interactive_executor(workflow_buffer,
         loading_context=loading_context,
         remote_storage_url=parsed_args.remote_storage_url,
         ftp_access=ftp_fs_access)
-    return cwltool.main.main(
+    cwltool.main.main(
         args=parsed_args,
         executor=executor,
         loadingContext=loading_context,
@@ -774,6 +776,7 @@ def non_interactive_executor(workflow_buffer,
         versionfunc=versionstring,
         logger_handler=console
     )
+    return lib_helper.task_id
 
 
 if __name__ == "__main__":
