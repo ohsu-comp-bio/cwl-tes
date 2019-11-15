@@ -732,10 +732,11 @@ def non_interactive_executor(workflow_buffer,
     temp_inputs = tempfile.NamedTemporaryFile()
 #**{"workflow": temp_cwl.name,
 #                       "job_order": temp_inputs.name}
+    print(args)
     temp_cwl.write(workflow_buffer)
     temp_inputs.write(inputs_buffer)
-    args.insert(0, temp_inputs.name)
-    args.insert(0, temp_cwl.name)
+    args = (temp_inputs.name,) + args
+    args = (temp_cwl.name,) + args
     parser = arg_parser()
     parsed_args = parser.parse_args(args)
 
