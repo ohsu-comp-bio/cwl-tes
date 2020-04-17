@@ -368,7 +368,7 @@ def set_secondary(typedef, fileobj, discovered):
     if isinstance(fileobj, MutableMapping) and fileobj.get("class") == "File":
         if "secondaryFiles" not in fileobj:
             fileobj["secondaryFiles"] = cmap(
-                [{"location": substitute(fileobj["location"], sf),
+                [{"location": substitute(fileobj["location"], sf["pattern"]),
                   "class": "File"} for sf in typedef["secondaryFiles"]])
             if discovered is not None:
                 discovered[fileobj["location"]] = fileobj["secondaryFiles"]
