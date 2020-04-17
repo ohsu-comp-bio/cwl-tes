@@ -63,8 +63,12 @@ class FtpFsAccess(StdFsAccess):
                 if creds:
                     user, _, passwd = creds
         if not user:
-            user = "anonymous"
-            passwd = "anonymous@"
+            user, passwd = self._recall_credentials(host)
+            if passwd is None:
+                passwd = "anonymous@"
+                if user is None:
+                    user = "anonymous"
+
         return host, user, passwd, path
 
     def _connect(self, url):  # type: (Text) -> Optional[ftplib.FTP]
@@ -84,6 +88,12 @@ class FtpFsAccess(StdFsAccess):
 
     def _abs(self, p):  # type: (Text) -> Text
         return abspath(p, self.basedir)
+
+    def _recall_credentials(self, desired_host):
+        for host, user, passwd in self.cache:
+            if desired_host == host:
+                return user, passwd
+        return None, None
 
     def glob(self, pattern):  # type: (Text) -> List[Text]
         if not self.basedir.startswith("ftp:"):
