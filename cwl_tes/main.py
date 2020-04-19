@@ -119,9 +119,18 @@ def main(args=None):
 
     if parsed_args.token:
         try:
-            jwt.decode(parsed_args.token,
-                       parsed_args.token_public_key.encode('utf-8').decode('unicode_escape'), algorithms=['RS256'])
-        except Exception as e:
+            validation_options = {}
+            validation_options['verify_aud'] = False
+            jwt.decode(
+                jwt=parsed_args.token,
+                verify=True,
+                key=parsed_args.token_public_key
+                .encode('utf-8')
+                .decode('unicode_escape'),
+                algorithms=['RS256'],
+                options=validation_options,
+            )
+        except Exception:
             raise Exception('Token is not valid')
 
     if parsed_args.quiet:
