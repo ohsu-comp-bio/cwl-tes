@@ -55,7 +55,7 @@ class FtpFsAccess(StdFsAccess):
         parse = urllib.parse.urlparse(url)
         user = parse.username
         passwd = parse.password
-        host = parse.netloc
+        host = parse.hostname
         path = parse.path
         if parse.scheme == 'ftp':
             if not user and self.netrc:
