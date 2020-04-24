@@ -36,10 +36,11 @@ def abspath(src, basedir):  # type: (Text, Text) -> Text
 
 class FtpFsAccess(StdFsAccess):
     """FTP access with upload."""
-    def __init__(self, basedir, cache=None):  # type: (Text) -> None
+    def __init__(self, basedir, cache=None, insecure=False):  # type: (Text) -> None
         super(FtpFsAccess, self).__init__(basedir)
         self.cache = cache or {}
         self.netrc = None
+        self.insecure = insecure
         try:
             if 'HOME' in os.environ:
                 if os.path.exists(os.path.join(os.environ['HOME'], '.netrc')):
@@ -81,7 +82,7 @@ class FtpFsAccess(StdFsAccess):
             ftp = ftplib.FTP_TLS()
             ftp.set_debuglevel(1 if _logger.isEnabledFor(logging.DEBUG) else 0)
             ftp.connect(host)
-            ftp.login(user, passwd)
+            ftp.login(user, passwd, secure=not self.insecure)
             self.cache[(host, user, passwd)] = ftp
             return ftp
         return None
