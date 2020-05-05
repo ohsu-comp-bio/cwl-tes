@@ -86,13 +86,10 @@ class TESPathMapper(PathMapper):
         super(TESPathMapper, self).__init__(reference_files, basedir, stagedir,
                                             separateDirs)
 
-    def _download_ftp_file(self, path):
+    def _download_streaming_file(self, path):
         with NamedTemporaryFile(mode='wb', delete=False) as dest:
             with self.fs_access.open(path, mode="rb") as handle:
-                chunk = "start"
-                while chunk:
-                    chunk = handle.read(16384)
-                    dest.write(chunk)
+                shutil.copyfileobj(handle, dest)
             return dest.name
 
     def visit(self, obj, stagedir, basedir, copy=False, staged=False):
@@ -127,8 +124,8 @@ class TESPathMapper(PathMapper):
                     if urllib.parse.urlsplit(deref).scheme in [
                             'http', 'https']:
                         deref = downloadHttpFile(path)
-                    elif urllib.parse.urlsplit(deref).scheme == 'ftp':
-                        deref = self._download_ftp_file(path)
+                    elif urllib.parse.urlsplit(deref).scheme in ('ftp', 's3'):
+                        deref = self._download_streaming_file(path)
                     else:
                         log.warning("unprocessed File %s", obj)
                         # Dereference symbolic links
