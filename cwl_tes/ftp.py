@@ -8,6 +8,7 @@ import logging
 import netrc
 import glob
 import os
+from tempfile import NamedTemporaryFile
 from typing import List, Text  # noqa F401 # pylint: disable=unused-import
 
 from six import PY2
@@ -32,6 +33,24 @@ def abspath(src, basedir):  # type: (Text, Text) -> Text
         else:
             apath = src if os.path.isabs(src) else os.path.join(basedir, src)
     return apath
+
+
+class FTP_TLS(ftplib.FTP_TLS):
+    """A patched version of FTP_TLS from ftplib, which uses the EPSV mode
+    to get FTP connection details rather than PASV."""
+
+    def __init__(self, epsv=False, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.epsv = epsv
+
+    def makepasv(self):
+        if self.epsv:
+            host, port = ftplib.parse229(self.sendcmd('EPSV'), self.sock.getpeername())
+
+            return host, port
+
+        host, port = super().makepasv()
+        return host, port
 
 
 class FtpFsAccess(StdFsAccess):
@@ -79,7 +98,8 @@ class FtpFsAccess(StdFsAccess):
             if (host, user, passwd) in self.cache:
                 if self.cache[(host, user, passwd)].pwd():
                     return self.cache[(host, user, passwd)]
-            ftp = ftplib.FTP_TLS()
+            # Use our alternate 'EPSV' version
+            ftp = FTP_TLS(epsv=True)
             ftp.set_debuglevel(1 if _logger.isEnabledFor(logging.DEBUG) else 0)
             ftp.connect(host)
             ftp.login(user, passwd, secure=not self.insecure)
@@ -145,12 +165,20 @@ class FtpFsAccess(StdFsAccess):
         return results
 
     def open(self, fn, mode):
+        """Patched open function which retrieves the file via FTP and opens
+        the local copy for reading
+        """
         if not fn.startswith("ftp:"):
             return super(FtpFsAccess, self).open(fn, mode)
         if 'r' in mode:
-            host, user, passwd, path = self._parse_url(fn)
-            handle = urllib.request.urlopen(
-                "ftp://{}:{}@{}/{}".format(user, passwd, host, path))
+            # Write the file locally
+            ftp = self._connect(fn)
+            with NamedTemporaryFile(mode='wb', delete=False) as dest:
+                ftp.retrbinary("RETR {}".format(self._parse_url(fn)[3]),
+                           dest.write, 1024)
+                temp_fname = dest.name
+            # Return a file handle in read mode
+            handle = open(temp_fname, mode)
             if PY2:
                 return contextlib.closing(handle)
             return handle
@@ -162,11 +190,27 @@ class FtpFsAccess(StdFsAccess):
         return self.isfile(fn) or self.isdir(fn)
 
     def isfile(self, fn):  # type: (Text) -> bool
+        if self.isdir(fn):
+            return False
+
         ftp = self._connect(fn)
         if ftp:
             try:
-                self.size(fn)
-                return True
+                # Check if it has a size
+                size = self.size(fn)
+                if size > 0:
+                    return True
+
+                # If that isn't possible, just check the name exists on the
+                # server. This doesn't exactly tell you if it's a file..
+
+                # Path to the file on the FTP server
+                file_path = self._parse_url(fn)[3]
+                # The filename itself
+                nlist = ftp.nlst(os.path.dirname(file_path))
+                if file_path in nlist:
+                    return True
+                return False
             except ftplib.all_errors:
                 return False
         return super(FtpFsAccess, self).isfile(fn)
@@ -232,14 +276,7 @@ class FtpFsAccess(StdFsAccess):
             try:
                 return ftp.size(path)
             except ftplib.all_errors:
-                handle = urllib.request.urlopen(
-                    "ftp://{}:{}@{}/{}".format(user, passwd, host, path))
-                info = handle.info()
-                handle.close()
-                if 'Content-length' in info:
-                    return int(info['Content-length'])
-                return None
-
+                return 0
         return super(FtpFsAccess, self).size(fn)
 
     def upload(self, file_handle, url):

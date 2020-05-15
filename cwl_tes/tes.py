@@ -87,13 +87,9 @@ class TESPathMapper(PathMapper):
                                             separateDirs)
 
     def _download_ftp_file(self, path):
-        with NamedTemporaryFile(mode='wb', delete=False) as dest:
-            with self.fs_access.open(path, mode="rb") as handle:
-                chunk = "start"
-                while chunk:
-                    chunk = handle.read(16384)
-                    dest.write(chunk)
-            return dest.name
+
+        handle = self.fs_access.open(path, mode="rb")
+        return handle.name
 
     def visit(self, obj, stagedir, basedir, copy=False, staged=False):
         tgt = convert_pathsep_to_unix(
