@@ -6,6 +6,7 @@ import random
 import time
 import threading
 import stat
+import re
 from builtins import str
 import shutil
 import functools
@@ -60,6 +61,7 @@ class TESCommandLineTool(CommandLineTool):
     def make_path_mapper(self, reffiles, stagedir, runtimeContext,
                          separateDirs):
         if self.remote_storage_url:
+     
             return TESPathMapper(
                 reffiles, runtimeContext.basedir, stagedir, separateDirs,
                 runtimeContext.make_fs_access(self.remote_storage_url or ""))
@@ -72,10 +74,12 @@ class TESCommandLineTool(CommandLineTool):
                 uuid.uuid4())
         else:
             remote_storage_url = ""
+        
         return functools.partial(TESTask, runtime_context=runtimeContext,
                                  url=self.url, spec=self.spec,
                                  remote_storage_url=remote_storage_url,
-                                 token=self.token)
+                                 token=self.token,
+                                 )
 
 
 class TESPathMapper(PathMapper):
@@ -86,18 +90,37 @@ class TESPathMapper(PathMapper):
         super(TESPathMapper, self).__init__(reference_files, basedir, stagedir,
                                             separateDirs)
 
-    def _download_ftp_file(self, path):
-        with NamedTemporaryFile(mode='wb', delete=False) as dest:
-            with self.fs_access.open(path, mode="rb") as handle:
-                chunk = "start"
-                while chunk:
-                    chunk = handle.read(16384)
-                    dest.write(chunk)
+    def _download_remote_file(self, path):
+        """ returns the file name of a local file with the contents of the remote file. if the file is an s3 object we
+        don't need to download it, just return the s3 URI"""
+        #print("_download_remote_file {}".format(path))
+        url = urllib.parse.urlparse(path)
+        if  url.scheme == 's3':
+            return path
+        elif url.scheme =="" or url.scheme =='file': 
+            with NamedTemporaryFile(mode='wb', delete=False) as dest:
+                with self.fs_access.open(path, mode="rb") as handle:
+                    chunk = "start"
+                    while chunk:
+                        chunk = handle.read(16384)
+                        dest.write(chunk)
             return dest.name
+        else:
+            raise Exception("Unknown scheme for file {}".format(path))
+       
+        
 
     def visit(self, obj, stagedir, basedir, copy=False, staged=False):
+        #print("Stagedir {}, basedir {}".format(stagedir, basedir))
+        # the target has to be a path otherwise FUNNEL does not work
+        
+        #url=urllib.parse.urlparse(obj['location'])
+        #if url.scheme == '' or url.scheme == 'file':
         tgt = convert_pathsep_to_unix(
-            os.path.join(stagedir, obj["basename"]))
+                os.path.join(stagedir, obj["basename"]))
+        #else:
+        #    tgt=obj['location']
+        
         if obj["location"] in self._pathmap:
             return
         if obj["class"] == "Directory":
@@ -107,28 +130,42 @@ class TESPathMapper(PathMapper):
                 resolved = uri_file_path(obj["location"])
             else:
                 resolved = obj["location"]
+            #print("Staring with location {}".format(obj['location']))
             self._pathmap[obj["location"]] = MapperEnt(
                 resolved, tgt, "WritableDirectory" if copy else "Directory",
                 staged)
+            #print("after mapperent got {}".format(obj['location']))
             if obj["location"].startswith("file://"):
                 staged = False
             self.visitlisting(
                 obj.get("listing", []), tgt, basedir, copy=copy, staged=staged)
         elif obj["class"] == "File":
             path = obj["location"]
+            
             abpath = abspath(path, basedir)
+            #print("tes: calling abspath with Path {} and basedir {} returns {}".format( path, basedir, abpath))
             if "contents" in obj and obj["location"].startswith("_:"):
+                #print("Staring with location {}".format(obj['location']))
                 self._pathmap[obj["location"]] = MapperEnt(
                     obj["contents"], tgt, "CreateFile", staged)
+                #print("after mapperent got {}".format(obj['location']))
+                #print("for {} the pathmap returns {}".format(obj['location'], self._pathmap[obj["location"]]))
             else:
+                #print("Inside else.. staged {} copy {}\n".format(staged, copy))
                 with SourceLine(obj, "location", validate.ValidationException,
                                 log.isEnabledFor(logging.DEBUG)):
                     deref = abpath
+                    #print("Deref initially is {}".format(deref))
                     if urllib.parse.urlsplit(deref).scheme in [
                             'http', 'https']:
                         deref = downloadHttpFile(path)
                     elif urllib.parse.urlsplit(deref).scheme == 'ftp':
-                        deref = self._download_ftp_file(path)
+                        #print("Going to ftp")
+                        deref = self._download_remote_file(path)
+                    elif urllib.parse.urlsplit(deref).scheme == 's3':
+                        #print("Going to s3")
+                        deref = self._download_remote_file(path)
+                        #print("File is {}".format(deref))
                     else:
                         log.warning("unprocessed File %s", obj)
                         # Dereference symbolic links
@@ -138,13 +175,19 @@ class TESPathMapper(PathMapper):
                             deref = rl if os.path.isabs(rl) \
                                 else os.path.join(os.path.dirname(deref), rl)
                             st = os.lstat(deref)
-
+                    
+                    #staged=False
+                    
+                    #print("deref is {} \npath set to {} \ntarget {} \nwith copy {} staged {} ".format(deref , path, tgt , copy , staged))
+                    #print("Staring with location {}".format(obj['location']))
                     self._pathmap[path] = MapperEnt(
-                        deref, tgt, "WritableFile" if copy else "File", staged)
+                        deref,  tgt, "WritableFile" if copy else "File", staged)
+                    #print("after mapperent got {}".format(obj['location']))
                     self.visitlisting(
                         obj.get("secondaryFiles", []), stagedir, basedir,
                         copy=copy, staged=staged)
-
+                    #print("Object has become {}".format(obj))
+                    #print("_pathmap has become {}".format(self._pathmap))
 
 class TESTask(JobBase):
     JobOrderType = Dict[Text, Union[Dict[Text, Any], List, Text]]
@@ -160,7 +203,8 @@ class TESTask(JobBase):
                  url,
                  spec,
                  remote_storage_url=None,
-                 token=None):
+                 token=None,
+                 uuid=None):
         super(TESTask, self).__init__(builder, joborder, make_path_mapper,
                                       requirements, hints, name)
         self.runtime_context = runtime_context
@@ -176,9 +220,17 @@ class TESTask(JobBase):
         self.poll_interval = 1
         self.poll_retries = 10
         self.client = tes.HTTPClient(url, token=token)
-        self.remote_storage_url = remote_storage_url
+        self.uuid=runtime_context.str_uuid
+        
+        # the remot storage url has the format <TES output path >/output_<uuid>
+        if remote_storage_url.startswith("s3://"):
+            self.remote_storage_url = os.path.dirname( remote_storage_url ) + "/" + self.name
+        else: 
+            self.remote_storage_url =remote_storage_url
         self.token = token
-
+        #print("Job order {}, name {}".format(joborder, name))
+        
+        
     def get_container(self):
         default = self.runtime_context.default_container or "python:2.7"
         container = default
@@ -342,7 +394,21 @@ class TESTask(JobBase):
                     type="DIRECTORY"
                 )
             )
-
+                    
+        def get_job_id(path):
+            rv=None
+            try:
+                m=re.search( self.uuid+"/(.*)", path)
+                rv= m.group(1)
+            except:
+                rv=os.path.basename(path)
+            try:
+                if rv.startswith('/'): rv=rv[1:]
+                if rv.endswith('/'): rv=rv[:-1]
+            except:
+                pass
+            return(rv)
+                
         create_body = tes.Task(
             name=self.name,
             description=self.spec.get("doc", ""),
@@ -364,7 +430,15 @@ class TESTask(JobBase):
                 ram_gb=ram,
                 disk_gb=disk
             ),
-            tags={"CWLDocumentId": self.spec.get("id")}
+            
+            
+
+                
+            
+            tags={"CWLDocumentId": self.spec.get("id"), 
+                  "tool_name" : self.name,
+                  "job_id": get_job_id( self.remote_storage_url ) ,
+                  "workflow_id": self.uuid}
         )
 
         return create_body
