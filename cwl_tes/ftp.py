@@ -36,7 +36,8 @@ def abspath(src, basedir):  # type: (Text, Text) -> Text
 
 class FtpFsAccess(StdFsAccess):
     """FTP access with upload."""
-    def __init__(self, basedir, cache=None, insecure=False):  # type: (Text) -> None
+    def __init__(
+            self, basedir, cache=None, insecure=False):  # type: (Text) -> None
         super(FtpFsAccess, self).__init__(basedir)
         self.cache = cache or {}
         self.netrc = None
