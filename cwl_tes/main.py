@@ -159,7 +159,8 @@ def main(args=None):
             super(CachingFtpFsAccess, self).__init__(
                 basedir, ftp_cache, insecure=insecure)
 
-    ftp_fs_access = CachingFtpFsAccess(os.curdir, insecure=parsed_args.insecure)
+    ftp_fs_access = CachingFtpFsAccess(
+        os.curdir, insecure=parsed_args.insecure)
     if parsed_args.remote_storage_url:
         parsed_args.remote_storage_url = ftp_fs_access.join(
             parsed_args.remote_storage_url, str(uuid.uuid4()))
