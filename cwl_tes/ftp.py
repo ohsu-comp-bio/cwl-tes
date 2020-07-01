@@ -38,12 +38,14 @@ def abspath(src, basedir):  # type: (Text, Text) -> Text
 
 class FtpFsAccess(StdFsAccess):
     """FTP access with upload."""
-    def __init__(self, basedir, cache=None):  # type: (Text) -> None
+    def __init__(
+            self, basedir, cache=None, insecure=False):  # type: (Text) -> None
         super(FtpFsAccess, self).__init__(basedir)
         print("Initializing FTPFsAccess object")
         self.cache = cache or {}
         self.uuid=None
         self.netrc = None
+        self.insecure = insecure
         try:
             if 'HOME' in os.environ:
                 if os.path.exists(os.path.join(os.environ['HOME'], '.netrc')):
@@ -59,7 +61,7 @@ class FtpFsAccess(StdFsAccess):
         parse = urllib.parse.urlparse(url)
         user = parse.username
         passwd = parse.password
-        host = parse.netloc
+        host = parse.hostname
         path = parse.path
         if parse.scheme == 'ftp':
             if not user and self.netrc:
@@ -67,8 +69,12 @@ class FtpFsAccess(StdFsAccess):
                 if creds:
                     user, _, passwd = creds
         if not user:
-            user = "anonymous"
-            passwd = "anonymous@"
+            user, passwd = self._recall_credentials(host)
+            if passwd is None:
+                passwd = "anonymous@"
+                if user is None:
+                    user = "anonymous"
+
         return host, user, passwd, path
 
     def _connect(self, url):  # type: (Text) -> Optional[ftplib.FTP]
@@ -81,17 +87,27 @@ class FtpFsAccess(StdFsAccess):
             ftp = ftplib.FTP_TLS()
             ftp.set_debuglevel(1 if _logger.isEnabledFor(logging.DEBUG) else 0)
             ftp.connect(host)
-            ftp.login(user, passwd)
+            ftp.login(user, passwd, secure=not self.insecure)
             self.cache[(host, user, passwd)] = ftp
             return ftp
         return None
 
     def _abs(self, p):  # type: (Text) -> Text
         return abspath(p, self.basedir)
+
     def setUUID(self, uuid):
         self.uuid=uuid
     def getUUID(self):
         return(self.uuid)
+
+
+    def _recall_credentials(self, desired_host):
+        for host, user, passwd in self.cache:
+            if desired_host == host:
+                return user, passwd
+        return None, None
+
+
     def glob(self, pattern):  # type: (Text) -> List[Text]
         if not self.basedir.startswith("ftp:"):
             return super(FtpFsAccess, self).glob(pattern)
@@ -198,8 +214,13 @@ class FtpFsAccess(StdFsAccess):
     def listdir(self, fn):  # type: (Text) -> List[Text]
         ftp = self._connect(fn)
         if ftp:
-            host, _, _, path = self._parse_url(fn)
-            return ["ftp://{}/{}".format(host, x) for x in ftp.nlst(path)]
+            host, username, passwd, path = self._parse_url(fn)
+            if username != "anonymous":
+                template = "ftp://{un}:{pw}@{0}/{1}"
+            else:
+                template = "ftp://{0}/{1}"
+            return [template.format(host, item, un=username, pw=passwd)
+                    for item in ftp.nlst(path)]
         return super(FtpFsAccess, self).listdir(fn)
 
     def join(self, path, *paths):  # type: (Text, *Text) -> Text

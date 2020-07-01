@@ -244,8 +244,12 @@ def main(args=None):
     # cache the connection to the remote service 
     class CachingFtpFsAccess(FtpFsAccess):
         """Ensures that the FTP connection cache is shared."""
-        def __init__(self, basedir):
-            super(CachingFtpFsAccess, self).__init__(basedir, ftp_cache)
+ 
+        def __init__(self, basedir, insecure=False):
+            super(CachingFtpFsAccess, self).__init__(
+                basedir, ftp_cache, insecure=insecure)
+     
+    
     class CachingS3FsAccess(AWSS3Access):
         """ created only for homogeneity with the FTP counterpart. it just returns an instance of AWSS3Access"""
         def __init__(self, basedir):
@@ -253,13 +257,14 @@ def main(args=None):
     
     if parsed_args.remote_storage_url and parsed_args.remote_storage_url.startswith("ftp:"):
         log.debug("Using ftp class for file management")
-        ftp_fs_access = CachingFtpFsAccess(os.curdir)
+        ftp_fs_access = CachingFtpFsAccess(os.curdir, insecure=parsed_args.insecure) 
         fs_access=ftp_fs_access
     if parsed_args.remote_storage_url and parsed_args.remote_storage_url.startswith("s3:"):
         log.debug("Using s3 class for file management")
         s3_fs_access = CachingS3FsAccess( os.curdir)
         fs_access=s3_fs_access
     
+
     if parsed_args.remote_storage_url:
         str_uuid=str(uuid.uuid4())
         fs_access.setUUID(str_uuid)
@@ -271,10 +276,13 @@ def main(args=None):
         remote_storage_url=parsed_args.remote_storage_url,
         token=parsed_args.token)
     runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
+
     if parsed_args.remote_storage_url and parsed_args.remote_storage_url.startswith("s3:"): 
         runtime_context.make_fs_access = CachingS3FsAccess
     else:
-        runtime_context.make_fs_access = CachingFtpFsAccess
+        runtime_context.make_fs_access  = functools.partial(
+        CachingFtpFsAccess, insecure=parsed_args.insecure)
+
     runtime_context.path_mapper = functools.partial(
         TESPathMapper, fs_access=fs_access)
     job_executor = MultithreadedJobExecutor() if parsed_args.parallel \
@@ -484,7 +492,9 @@ def set_secondary(typedef, fileobj, discovered):
             #print("set_secondary. is not in fileobj.{}\nwe will get it from the location {}\n with secondary files ".format(fileobj, fileobj["location"], ))
             #[print("sf = {}\n".format( sf['pattern'] ))  for sf in typedef["secondaryFiles"] ]
             fileobj["secondaryFiles"] = cmap(
-                [{"location": substitute(fileobj["location"],sf['pattern'] ),
+
+                [{"location": substitute(fileobj["location"], sf["pattern"]),
+
                   "class": "File"} for sf in typedef["secondaryFiles"]])
             if discovered is not None:
                 discovered[fileobj["location"]] = fileobj["secondaryFiles"]
@@ -523,6 +533,9 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
                         type=Text, default=os.path.abspath('.'),
                         help="Output directory, default current directory")
     parser.add_argument("--remote-storage-url", type=str)
+    parser.add_argument("--insecure", action="store_true",
+                        help=("Connect securely to FTP server (ignored when "
+                              "--remote-storage-url is not set)"))
     parser.add_argument("--token", type=str)
     parser.add_argument("--token-public-key", type=str,
                         default=DEFAULT_TOKEN_PUBLIC_KEY)
