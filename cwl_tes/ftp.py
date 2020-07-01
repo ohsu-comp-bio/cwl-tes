@@ -9,7 +9,7 @@ import netrc
 import glob
 import os
 from typing import List, Text  # noqa F401 # pylint: disable=unused-import
-
+import sys
 from six import PY2
 from six.moves import urllib
 from schema_salad.ref_resolver import uri_file_path
@@ -31,6 +31,8 @@ def abspath(src, basedir):  # type: (Text, Text) -> Text
             apath = src if os.path.isabs(src) else basedir + '/' + src
         else:
             apath = src if os.path.isabs(src) else os.path.join(basedir, src)
+    #raise Exception("abspath: Source {}\n basedir {} \nScheme {} \nreturns {}".format(src, basedir, scheme, apath))
+    
     return apath
 
 
@@ -39,7 +41,9 @@ class FtpFsAccess(StdFsAccess):
     def __init__(
             self, basedir, cache=None, insecure=False):  # type: (Text) -> None
         super(FtpFsAccess, self).__init__(basedir)
+        print("Initializing FTPFsAccess object")
         self.cache = cache or {}
+        self.uuid=None
         self.netrc = None
         self.insecure = insecure
         try:
@@ -91,11 +95,18 @@ class FtpFsAccess(StdFsAccess):
     def _abs(self, p):  # type: (Text) -> Text
         return abspath(p, self.basedir)
 
+    def setUUID(self, uuid):
+        self.uuid=uuid
+    def getUUID(self):
+        return(self.uuid)
+
+
     def _recall_credentials(self, desired_host):
         for host, user, passwd in self.cache:
             if desired_host == host:
                 return user, passwd
         return None, None
+
 
     def glob(self, pattern):  # type: (Text) -> List[Text]
         if not self.basedir.startswith("ftp:"):
@@ -146,6 +157,8 @@ class FtpFsAccess(StdFsAccess):
         return results
 
     def open(self, fn, mode):
+        print("ftp OPEN for {} {}".format(fn, mode))
+        sys.exit(1)
         if not fn.startswith("ftp:"):
             return super(FtpFsAccess, self).open(fn, mode)
         if 'r' in mode:
