@@ -1,5 +1,6 @@
 """Main entrypoint for cwl-tes."""
 from __future__ import absolute_import, print_function, unicode_literals
+import cwl_tes.monkey_patch
 
 import argparse
 import os
@@ -42,6 +43,8 @@ from cwl_tes.s3 import AWSS3Access
 
 
 
+import io
+from contextlib import redirect_stdout
 
 
 
@@ -298,16 +301,31 @@ def main(args=None):
     
     #print("Calling cwltool.main\n{}".format(parsed_args))
     runtime_context.str_uuid=str_uuid
-    retval= cwltool.main.main(
-        args=parsed_args,
-        executor=executor,
-        loadingContext=loading_context,
-        runtimeContext=runtime_context,
-        versionfunc=versionstring,
-        logger_handler=console
-    )
-    #print("Runtime context {}".format(runtime_context) )
+    
+    
+    sys.stdout=io.StringIO()
+    cwlout=io.StringIO()
+
+    retval=   cwltool.main.main(
+            args=parsed_args,
+            executor=executor,
+            loadingContext=loading_context,
+            runtimeContext=runtime_context,
+            versionfunc=versionstring,
+            logger_handler=console,
+            stdout=cwlout
+        )
+    tesout=sys.stdout.getvalue() # contains the path mapping
+    sys.stdout = sys.__stdout__
+    #print("From tes got {}".format( tesout ))
+    #print("Got the output {}".format(cwlout.getvalue()))
+    output=cwl_tes.monkey_patch.replaceURI(tesout, cwlout.getvalue())
+    
+    print( output )
     return retval
+
+
+
 
 def tes_execute(process,           # type: Process
                 job_order,         # type: Dict[Text, Any]

@@ -7,10 +7,12 @@ import time
 import threading
 import stat
 import re
+import json
 from builtins import str
 import shutil
 import functools
 import uuid
+import inspect
 from tempfile import NamedTemporaryFile
 from pprint import pformat
 from typing import (Any, Callable, Dict, List, MutableMapping, MutableSequence,
@@ -27,7 +29,7 @@ from cwltool.builder import Builder
 from cwltool.command_line_tool import CommandLineTool
 from cwltool.context import RuntimeContext
 from cwltool.errors import WorkflowException, UnsupportedRequirement
-from cwltool.expression import JSON
+#from cwltool.expression import JSON
 from cwltool.job import JobBase
 from cwltool.stdfsaccess import StdFsAccess
 from cwltool.pathmapper import (PathMapper, uri_file_path, MapperEnt,
@@ -89,11 +91,38 @@ class TESPathMapper(PathMapper):
         self.fs_access = fs_access
         super(TESPathMapper, self).__init__(reference_files, basedir, stagedir,
                                             separateDirs)
-
+        
+    @property
+    def getPathMapping(self):
+        return self._pathmap 
+    
+    def mapper(self, src: str) -> MapperEnt:
+        
+        # find who called me:
+        st=inspect.stack()
+        callers=[ st[i][3] for i,k in enumerate(st) ]
+        if "#" in src:
+            i = src.index("#")
+            p = self._pathmap[src[:i]]
+            return MapperEnt(p.resolved, p.target + src[i:], p.type, p.staged)
+        pm=self._pathmap[src]
+        
+        if 'relocateOutputs' in callers:
+            # leave this line to print out the URI of the file and its resolved location
+            # this output will be used at the end ot map the output files back to their URIs
+            print("Mapper: {} ".format(json.dumps(  {"resolved":pm.resolved,"target":pm.target, "target_uri":file_uri(pm.target)})    ) )
+        
+        
+        # at this point the _pathmap for an s3 object contains
+        # resolved : s3 URI
+        # target : location on local fs
+        # if we don't want to get the local file (because we let the objects remain on s3) we will replace the target with resolved
+        return pm
+    
+    
     def _download_remote_file(self, path):
         """ returns the file name of a local file with the contents of the remote file. if the file is an s3 object we
         don't need to download it, just return the s3 URI"""
-        #print("_download_remote_file {}".format(path))
         url = urllib.parse.urlparse(path)
         if  url.scheme == 's3':
             return path
@@ -111,7 +140,6 @@ class TESPathMapper(PathMapper):
         
 
     def visit(self, obj, stagedir, basedir, copy=False, staged=False):
-        #print("Stagedir {}, basedir {}".format(stagedir, basedir))
         # the target has to be a path otherwise FUNNEL does not work
         
         #url=urllib.parse.urlparse(obj['location'])
@@ -130,11 +158,9 @@ class TESPathMapper(PathMapper):
                 resolved = uri_file_path(obj["location"])
             else:
                 resolved = obj["location"]
-            #print("Staring with location {}".format(obj['location']))
             self._pathmap[obj["location"]] = MapperEnt(
                 resolved, tgt, "WritableDirectory" if copy else "Directory",
                 staged)
-            #print("after mapperent got {}".format(obj['location']))
             if obj["location"].startswith("file://"):
                 staged = False
             self.visitlisting(
@@ -143,29 +169,20 @@ class TESPathMapper(PathMapper):
             path = obj["location"]
             
             abpath = abspath(path, basedir)
-            #print("tes: calling abspath with Path {} and basedir {} returns {}".format( path, basedir, abpath))
             if "contents" in obj and obj["location"].startswith("_:"):
-                #print("Staring with location {}".format(obj['location']))
                 self._pathmap[obj["location"]] = MapperEnt(
                     obj["contents"], tgt, "CreateFile", staged)
-                #print("after mapperent got {}".format(obj['location']))
-                #print("for {} the pathmap returns {}".format(obj['location'], self._pathmap[obj["location"]]))
             else:
-                #print("Inside else.. staged {} copy {}\n".format(staged, copy))
                 with SourceLine(obj, "location", validate.ValidationException,
                                 log.isEnabledFor(logging.DEBUG)):
                     deref = abpath
-                    #print("Deref initially is {}".format(deref))
                     if urllib.parse.urlsplit(deref).scheme in [
                             'http', 'https']:
                         deref = downloadHttpFile(path)
                     elif urllib.parse.urlsplit(deref).scheme == 'ftp':
-                        #print("Going to ftp")
                         deref = self._download_remote_file(path)
                     elif urllib.parse.urlsplit(deref).scheme == 's3':
-                        #print("Going to s3")
                         deref = self._download_remote_file(path)
-                        #print("File is {}".format(deref))
                     else:
                         log.warning("unprocessed File %s", obj)
                         # Dereference symbolic links
@@ -175,19 +192,11 @@ class TESPathMapper(PathMapper):
                             deref = rl if os.path.isabs(rl) \
                                 else os.path.join(os.path.dirname(deref), rl)
                             st = os.lstat(deref)
-                    
-                    #staged=False
-                    
-                    #print("deref is {} \npath set to {} \ntarget {} \nwith copy {} staged {} ".format(deref , path, tgt , copy , staged))
-                    #print("Staring with location {}".format(obj['location']))
                     self._pathmap[path] = MapperEnt(
                         deref,  tgt, "WritableFile" if copy else "File", staged)
-                    #print("after mapperent got {}".format(obj['location']))
                     self.visitlisting(
                         obj.get("secondaryFiles", []), stagedir, basedir,
                         copy=copy, staged=staged)
-                    #print("Object has become {}".format(obj))
-                    #print("_pathmap has become {}".format(self._pathmap))
 
 class TESTask(JobBase):
     JobOrderType = Dict[Text, Union[Dict[Text, Any], List, Text]]
@@ -228,7 +237,6 @@ class TESTask(JobBase):
         else: 
             self.remote_storage_url =remote_storage_url
         self.token = token
-        #print("Job order {}, name {}".format(joborder, name))
         
         
     def get_container(self):
@@ -440,7 +448,6 @@ class TESTask(JobBase):
                   "job_id": get_job_id( self.remote_storage_url ) ,
                   "workflow_id": self.uuid}
         )
-
         return create_body
 
     def run(self,
