@@ -22,9 +22,6 @@ from ruamel import yaml
 from schema_salad.sourceline import cmap
 from typing import Any, Dict, Tuple, Optional
 
-
-
-
 import cwltool.main
 from cwltool.builder import substitute
 from cwltool.context import LoadingContext, RuntimeContext
@@ -39,16 +36,7 @@ from .tes import make_tes_tool, TESPathMapper
 from .__init__ import __version__
 from .ftp import FtpFsAccess
 from cwl_tes.s3 import AWSS3Access
-
-
-
-
 import io
-from contextlib import redirect_stdout
-
-
-
-
 
 log = logging.getLogger("tes-backend")
 log.setLevel(logging.INFO)
@@ -59,80 +47,6 @@ log.addHandler(console)
 
 DEFAULT_TMP_PREFIX = "tmp"
 DEFAULT_TOKEN_PUBLIC_KEY = os.environ.get('TOKEN_PUBLIC_KEY', '')
-
-
-
-
-
-# Classes to replace in cwltool
-
-
-
-# 
-# def FSActioncall(
-#     self,
-#     parser,  # type: argparse.ArgumentParser
-#     namespace,  # type: argparse.Namespace
-#     values,  # type: Union[AnyStr, Sequence[Any], None]
-#     option_string=None,  # type: Optional[str]
-# ):  # type: (...) -> None
-#     url= urllib.parse.urlparse( values )
-#     print("This is the new FSAction: __call__ : self.dest {}, values {}".format(self.dest, values))
-#     if url.scheme == '':
-#         setattr(
-#             namespace,
-#             self.dest,
-#             {
-#                 "class": self.objclass,
-#                 "location": file_uri(str(os.path.abspath(cast(AnyStr, values)))),
-#             },
-#         )
-#     else:
-#         setattr(
-#             namespace,
-#             self.dest,
-#             {
-#                 "class": self.objclass,
-#                 "location": values,
-#             },
-#         )
-#         
-# cwltool.argparser.FSAction.__call__=FSActioncall          
-#             
-#         #print("FSAction: __call__ : self.dest {}, values {} ".format(self.dest, values ))
-# 
-# 
-# 
-# def FSAppendActioncall(
-#     self,
-#     parser,  # type: argparse.ArgumentParser
-#     namespace,  # type: argparse.Namespace
-#     values,  # type: Union[AnyStr, Sequence[Any], None]
-#     option_string=None,  # type: Optional[str]
-# ):  # type: (...) -> None
-#     g = getattr(namespace, self.dest)
-#     if not g:
-#         g = []
-#         setattr(namespace, self.dest, g)
-#     url= urllib.parse.urlparse( values )
-#     print("This is the new FSAppendActionc: __call__ : self.dest {}, values {}".format(self.dest, values))
-#     if url.scheme ==  "" :
-#         g.append(
-#             {
-#                 "class": self.objclass,
-#                 "location": file_uri(str(os.path.abspath(cast(AnyStr, values)))),
-#             }
-#         )
-#     else:
-#         g.append(
-#             {
-#                 "class": self.objclass,
-#                 "location":  values,
-#             }
-#         )    
-# cwltool.argparser.FSAppendAction.__call__=FSAppendActioncall       
-
-
 
 
 def versionstring():
@@ -152,7 +66,6 @@ def ftp_upload(base_url, fs_access, cwl_obj):
 
     Update the location URL to match.
     """
-    #print("ftp_upload: CWL obj {}".format(cwl_obj) )
     if "path" not in cwl_obj and not (
             "location" in cwl_obj and cwl_obj["location"].startswith(
                 "file:/")):
@@ -244,32 +157,35 @@ def main(args=None):
 
     ftp_cache = {}
 
-    # cache the connection to the remote service 
+    # cache the connection to the remote service
     class CachingFtpFsAccess(FtpFsAccess):
         """Ensures that the FTP connection cache is shared."""
- 
+
         def __init__(self, basedir, insecure=False):
             super(CachingFtpFsAccess, self).__init__(
                 basedir, ftp_cache, insecure=insecure)
-     
-    
+
     class CachingS3FsAccess(AWSS3Access):
-        """ created only for homogeneity with the FTP counterpart. it just returns an instance of AWSS3Access"""
+        """ created only for homogeneity with the FTP counterpart.
+            it just returns an instance of AWSS3Access"""
         def __init__(self, basedir):
-            super(CachingS3FsAccess, self).__init__(basedir)      
-    
-    if parsed_args.remote_storage_url and parsed_args.remote_storage_url.startswith("ftp:"):
+            super(CachingS3FsAccess, self).__init__(basedir)
+
+    if parsed_args.remote_storage_url and \
+       parsed_args.remote_storage_url.startswith("ftp:"):
         log.debug("Using ftp class for file management")
-        ftp_fs_access = CachingFtpFsAccess(os.curdir, insecure=parsed_args.insecure) 
-        fs_access=ftp_fs_access
-    if parsed_args.remote_storage_url and parsed_args.remote_storage_url.startswith("s3:"):
+        ftp_fs_access = CachingFtpFsAccess(
+            os.curdir,
+            insecure=parsed_args.insecure)
+        fs_access = ftp_fs_access
+    if parsed_args.remote_storage_url and \
+       parsed_args.remote_storage_url.startswith("s3:"):
         log.debug("Using s3 class for file management")
-        s3_fs_access = CachingS3FsAccess( os.curdir)
-        fs_access=s3_fs_access
-    
+        s3_fs_access = CachingS3FsAccess(os.curdir)
+        fs_access = s3_fs_access
 
     if parsed_args.remote_storage_url:
-        str_uuid=str(uuid.uuid4())
+        str_uuid = str(uuid.uuid4())
         fs_access.setUUID(str_uuid)
         parsed_args.remote_storage_url = fs_access.join(
             parsed_args.remote_storage_url, str_uuid)
@@ -280,11 +196,13 @@ def main(args=None):
         token=parsed_args.token)
     runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
 
-    if parsed_args.remote_storage_url and parsed_args.remote_storage_url.startswith("s3:"): 
+    if parsed_args.remote_storage_url and \
+       parsed_args.remote_storage_url.startswith("s3:"):
         runtime_context.make_fs_access = CachingS3FsAccess
     else:
-        runtime_context.make_fs_access  = functools.partial(
-        CachingFtpFsAccess, insecure=parsed_args.insecure)
+        runtime_context.make_fs_access = functools.partial(
+            CachingFtpFsAccess,
+            insecure=parsed_args.insecure)
 
     runtime_context.path_mapper = functools.partial(
         TESPathMapper, fs_access=fs_access)
@@ -296,17 +214,15 @@ def main(args=None):
         loading_context=loading_context,
         remote_storage_url=parsed_args.remote_storage_url,
         ftp_access=fs_access)
-    log.info("{}".format(versionstring() ))
-    log.info("Submitting workflow: {}".format(str_uuid ))
-    
-    #print("Calling cwltool.main\n{}".format(parsed_args))
-    runtime_context.str_uuid=str_uuid
-    
-    
-    sys.stdout=io.StringIO()
-    cwlout=io.StringIO()
+    log.info("{}".format(versionstring()))
+    log.info("Submitting workflow: {}".format(str_uuid))
 
-    retval=   cwltool.main.main(
+    runtime_context.str_uuid = str_uuid
+
+    sys.stdout = io.StringIO()
+    cwlout = io.StringIO()
+
+    retval = cwltool.main.main(
             args=parsed_args,
             executor=executor,
             loadingContext=loading_context,
@@ -315,16 +231,12 @@ def main(args=None):
             logger_handler=console,
             stdout=cwlout
         )
-    tesout=sys.stdout.getvalue() # contains the path mapping
+    tesout = sys.stdout.getvalue()  # contains the path mapping
     sys.stdout = sys.__stdout__
-    #print("From tes got {}".format( tesout ))
-    #print("Got the output {}".format(cwlout.getvalue()))
-    output=cwl_tes.monkey_patch.replaceURI(tesout, cwlout.getvalue())
-    
-    print( output )
+    output = cwl_tes.monkey_patch.replaceURI(tesout, cwlout.getvalue())
+
+    print(output)
     return retval
-
-
 
 
 def tes_execute(process,           # type: Process
@@ -426,7 +338,6 @@ def upload_dependencies_ftp(document_loader, workflowobj, uri, loadref_run,
         remove = [False]
 
         def ensure_default_location(fileobj):
-            #print("ensure_default_location: Fileobj is {} ".format(fileobj))
             if "location" not in fileobj and "path" in fileobj:
                 fileobj["location"] = fileobj["path"]
                 del fileobj["path"]
@@ -501,18 +412,13 @@ def discover_secondary_files(inputs, job_order, discovered=None):
 def set_secondary(typedef, fileobj, discovered):
     """
     Pull over missing secondaryFiles to the job object entry.
-
     Adapted from:
     https://github.com/curoverse/arvados/blob/2b0b06579199967eca3d44d955ad64195d2db3c3/sdk/cwl/arvados_cwl/runner.py#L67
     """
     if isinstance(fileobj, MutableMapping) and fileobj.get("class") == "File":
         if "secondaryFiles" not in fileobj:
-            #print("set_secondary. is not in fileobj.{}\nwe will get it from the location {}\n with secondary files ".format(fileobj, fileobj["location"], ))
-            #[print("sf = {}\n".format( sf['pattern'] ))  for sf in typedef["secondaryFiles"] ]
             fileobj["secondaryFiles"] = cmap(
-
                 [{"location": substitute(fileobj["location"], sf["pattern"]),
-
                   "class": "File"} for sf in typedef["secondaryFiles"]])
             if discovered is not None:
                 discovered[fileobj["location"]] = fileobj["secondaryFiles"]

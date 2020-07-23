@@ -31,8 +31,7 @@ def abspath(src, basedir):  # type: (Text, Text) -> Text
             apath = src if os.path.isabs(src) else basedir + '/' + src
         else:
             apath = src if os.path.isabs(src) else os.path.join(basedir, src)
-    #raise Exception("abspath: Source {}\n basedir {} \nScheme {} \nreturns {}".format(src, basedir, scheme, apath))
-    
+
     return apath
 
 
@@ -43,7 +42,7 @@ class FtpFsAccess(StdFsAccess):
         super(FtpFsAccess, self).__init__(basedir)
         print("Initializing FTPFsAccess object")
         self.cache = cache or {}
-        self.uuid=None
+        self.uuid = None
         self.netrc = None
         self.insecure = insecure
         try:
@@ -96,17 +95,16 @@ class FtpFsAccess(StdFsAccess):
         return abspath(p, self.basedir)
 
     def setUUID(self, uuid):
-        self.uuid=uuid
+        self.uuid = uuid
+
     def getUUID(self):
         return(self.uuid)
-
 
     def _recall_credentials(self, desired_host):
         for host, user, passwd in self.cache:
             if desired_host == host:
                 return user, passwd
         return None, None
-
 
     def glob(self, pattern):  # type: (Text) -> List[Text]
         if not self.basedir.startswith("ftp:"):

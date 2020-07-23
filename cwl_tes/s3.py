@@ -1,26 +1,17 @@
 """AWS S3 support"""
 from __future__ import absolute_import
 
-import contextlib
 import fnmatch
-import ftplib
-import logging
-import netrc
+# import ftplib
 import glob
 import boto3
 import os
-import re
-import sys
-import exrex
 from typing import List, Text  # noqa F401 # pylint: disable=unused-import
 
-from six import PY2
 from six.moves import urllib
-from schema_salad.ref_resolver import uri_file_path
-from typing import Tuple, Optional
-
+# from typing import Tuple, Optional
+# import re
 from cwltool.stdfsaccess import StdFsAccess
-from cwltool.loghandler import _logger
 from .ftp import abspath
 
 from .s3file import S3File
@@ -31,77 +22,54 @@ class AWSS3Access(StdFsAccess):
     def __init__(self, basedir, cache=None):  # type: (Text) -> None
         super(AWSS3Access, self).__init__(basedir)
         self.cache = cache or {}
-        self.uuid=None
-        #print("Initializing AWSS3Acces object for basedir {}".format( basedir))
+        self.uuid = None
 
-    
     def _parse_url(self, url):
-        # type: (Text) -> Tuple[Optional[Text], Optional[Text]]
-
-        # the s3 url can be in one of the following formats:
-        #s3://bucket/path/object
-        #s3://aws.com/bucket/path/object
-        #print("_parse_url: parsing url {}".format(url))
         parse = urllib.parse.urlparse(url)
-        # if the parse.netloc contains something like aws...com we will consider this the server and remove it
-        if re.search( "aws.+\.com", parse.netloc ):
-            bucketM=re.search("(.+?)(/.*)", parse.path)
-            bucket=bucketM[1]
-            if bucket[0]=='/':
-                bucket=bucket[1:]
-            
-            parse=parse._replace(netloc=bucket)
-            parse=parse._replace(path=bucketM[2])
-            
-            url=urllib.parse.urlunparse(parse)
-            parse=self._parse_url( url )
-        #user = parse.username
-        #passwd = parse.password
+#         if re.search("aws.+\.com", parse.netloc):
+#             bucketM=re.search("(.+?)(/.*)", parse.path)
+#             bucket=bucketM[1]
+#             if bucket[0]=='/':
+#                 bucket = bucket[1:]
+#
+#             parse = parse._replace(netloc=bucket)
+#             parse = parse._replace(path=bucketM[2])
+#
+#             url = urllib.parse.urlunparse(parse)
+#             parse = self._parse_url(url)
         bucket = parse.netloc
         path = parse.path
-        if path[0]=='/': path=path[1:]
-        #if parse.scheme == 's3':
-
-        #print("_parse_url: bucket {} path {}".format(bucket, path))
+        if path[0] == '/':
+            path = path[1:]
         return bucket, path
 
-    def _connect(self, url):  # type: (Text) -> Optional[ftplib.FTP]
+    def _connect(self, url):
         '''caches and returns the s3 connection '''
         parse = urllib.parse.urlparse(url)
         if parse.scheme == 's3':
-
             bucketname, _ = self._parse_url(url)
-            if (bucketname ) in self.cache:
-                    return self.cache[(bucketname)]
+            if (bucketname) in self.cache:
+                return self.cache[(bucketname)]
             session = boto3.session.Session()
-            #s3=boto3.resource('s3')
-            #bucket=s3.Bucket(  bucketname )
-            
-            #ftp = ftplib.FTP_TLS()
-            #ftp.set_debuglevel(1 if _logger.isEnabledFor(logging.DEBUG) else 0)
-            #ftp.connect(host)
-            #ftp.login(user, passwd)
             self.cache[(bucketname)] = session
             return session
-            #return bucket
         return None
 
     def setUUID(self, uuid):
-        self.uuid=uuid
+        self.uuid = uuid
+
     def getUUID(self):
         return(self.uuid)
 
-    def _abs(self, p):  # type: (Text) -> Text
+    def _abs(self, p):
         return abspath(p, self.basedir)
 
-    def glob(self, pattern):  # type: (Text) -> List[Text]
-        #print("GLOB pattern {}".format(pattern))
+    def glob(self, pattern):
         if not self.basedir.startswith("s3:"):
             return super(AWSS3Access, self).glob(pattern)
         return self._glob(pattern)
 
     def _glob0(self, basename, basepath):
-        #print("_GLOB0  basename {} basepath {}".format(basename , basepath))
         if basename == '':
             if self.isdir(basepath):
                 return [basename]
@@ -111,10 +79,9 @@ class AWSS3Access(StdFsAccess):
         return []
 
     def _glob1(self, pattern, basepath=None):
-        #print("_GLOB1  pattern {} basepath {}".format(pattern , basepath))
         try:
             names = self.listdir(basepath)
-        except :
+        except Exception:
             return []
         if pattern[0] != '.':
             names = filter(lambda x: x[0] != '.', names)
@@ -124,10 +91,7 @@ class AWSS3Access(StdFsAccess):
         if pattern.endswith("/."):
             pattern = pattern[:-1]
         dirname, basename = pattern.rsplit('/', 1)
-        
-        #print("_GLOB dirname {} basename {}".format(dirname, basename))
         if not glob.has_magic(pattern):
-            #print("Glbod does not have magic")
             if basename:
                 if self.exists(pattern):
                     return [pattern]
@@ -136,7 +100,6 @@ class AWSS3Access(StdFsAccess):
                     return [pattern]
             return []
         if not dirname:
-            #print("We don't have dirname")
             return self._glob1(basename)
 
         dirs = self._glob(dirname)
@@ -148,101 +111,81 @@ class AWSS3Access(StdFsAccess):
         for dirname in dirs:
             results.extend(glob_in_dir(basename, dirname))
         return results
-#import exrex
-# import boto3
-# session = boto3.Session() # profile_name='xyz'
-# s3 = session.resource('s3')
-# bucket = s3.Bucket('mybucketname')
-# 
-# prefixes = list(exrex.generate(r'api/v2/responses/2016-11-08/(2016-11-08T2[2-3]|2016-11-09)'))
-# 
-# objects = []
-# for prefix in prefixes:
-#     print(prefix, end=" ")
-#     current_objects = list(bucket.objects.filter(Prefix=prefix))
-#     print(len(current_objects))
-#     objects += current_objects
+
     def open(self, fn, mode):
-        
-        #print("s3 OPEN for {} {}".format(fn, mode))
-        #sys.exit(1)
-        
         if not fn.startswith("s3:"):
             return super(AWSS3Access, self).open(fn, mode)
         if 'r' in mode:
-            s3session=self._connect(fn)
             bucket, path = self._parse_url(fn)
-            s3bucket=s3session.client('s3')
-            handle = s3bucket.get_object(Bucket=bucket, Key=path)['Body']
-            
             s3 = boto3.resource("s3")
             s3_object = s3.Object(bucket_name=bucket, key=path)
-            return S3File( s3_object )
-        raise Exception('Write mode s3 not implemented')
+            return S3File(s3_object)
+        if 'w' in mode:
+            # check if file exists
+            if self.exists( fn ):
+                raise Exception('Cannot override or append s3 objects. {} exists.'.format( fn ))
+            bucket, path = self._parse_url(fn)
+            s3 = boto3.resource("s3")
+            s3_object = s3.Object(bucket_name=bucket, key=path)
+            return S3File(s3_object)
+        raise Exception('{} mode s3 not implemented'.format( mode ))
 
     def exists(self, fn):  # type: (Text) -> bool
-        #print("EXISTS for file {}".format(fn))
         if not fn.startswith("s3:"):
             return super(AWSS3Access, self).exists(fn)
         return self.isfile(fn) or self.isdir(fn)
 
     def isfile(self, fn):  # type: (Text) -> bool
-        #print("IS FILE for file {}".format(fn))
         s3session = self._connect(fn)
-        
         if s3session:
             try:
-                sz=self.size(fn)
-                if sz is None: 
-                    #print("Return False")
+                sz = self.size(fn)
+                if sz is None:
                     return False
-                #print("Return True")
                 return True
-            except :
-                #print("Return False")
+            except Exception:
                 return False
         return super(AWSS3Access, self).isfile(fn)
 
-    def isdir(self, fn):  # type: (Text) -> bool
+    def isdir(self, fn):
         ''' to check if a fn is really a directory
             we list all the objects under this prefix
             It is important not to have a / at teh beginnint of the path'''
-        #print("IS DIR for file {}".format(fn))
-        s3session = self._connect(fn) # this is a resource for the bucket
+        s3session = self._connect(fn)
         if s3session:
             try:
-                (bucketname, path)=self._parse_url( fn )
+                (bucketname, path) = self._parse_url(fn)
                 if path[0] == '/':
-                    path=path[1:]
+                    path = path[1:]
                 if path[-1] != '/':
-                    path=path + '/'
-                contents=0
-                s3bucket=s3session.client('s3')
-                for o in s3bucket.list_objects_v2(Bucket=bucketname, Prefix=path)['Contents']:
-                    contents=contents+1
-                    if contents >0:
-                        #print("Return True")
+                    path = path + '/'
+                contents = 0
+                s3bucket = s3session.client('s3')
+                for o in s3bucket.list_objects_v2(
+                        Bucket=bucketname,
+                        Prefix=path)['Contents']:
+                    contents = contents + 1
+                    if contents > 0:
                         return True
-                #print("Return False")
                 return False
-            except:
-                #print("Return False")
+            except Exception:
                 return False
         return super(AWSS3Access, self).isdir(fn)
 
     def mkdir(self, url, recursive=True):
-        """Make the directory specified in the URL. For s3 it just creates an ojbect that ends with /"""
+        """Make the directory specified in the URL.
+           For s3 it just creates an ojbect that ends with /"""
         s3session = self._connect(url)
-        bucketname,path = self._parse_url(url)
+        bucketname, path = self._parse_url(url)
         if path[0] == '/':
-            path=path[1:]
+            path = path[1:]
         if path[-1] != '/':
-            path=path + '/'
+            path = path + '/'
         try:
-            s3bucket=s3session.client('s3')
+            s3bucket = s3session.client('s3')
             s3bucket.put_object(Bucket=bucketname, Key=path)
             return True
-        except:
+        except Exception:
             return False
         return None
 
@@ -250,54 +193,58 @@ class AWSS3Access(StdFsAccess):
         s3session = self._connect(fn)
         if s3session:
             bucketname, path = self._parse_url(fn)
-            #print("s3.py: bucketname {} path {}".format( bucketname, path))
-            s3bucket=s3session.client('s3')
-            if path[0]=='/':path=path[1:]
-            if path[-1]!='/':path=path+'/'
-            #print("s3.py: bucketname {} path {}".format( bucketname, path))
-            
-            return ["s3://{}/{}".format(bucketname, x['Key']) for x in s3bucket.list_objects_v2(Bucket=bucketname, Prefix=path)['Contents']]
+            s3bucket = s3session.client('s3')
+            if path[0] == '/':
+                path = path[1:]
+            if path[-1] != '/':
+                path = path+'/'
+            return ["s3://{}/{}".format(bucketname, x['Key'])
+                    for x in s3bucket.list_objects_v2(
+                        Bucket=bucketname,
+                        Prefix=path)['Contents']]
         return super(AWSS3Access, self).listdir(fn)
 
-    def join(self, path, *paths):  # type: (Text, *Text) -> Text
+    def join(self, path, *paths):
         if path.startswith('s3:'):
             result = path
             for extra_path in paths:
                 if extra_path.startswith('s3:/'):
                     result = extra_path
                 else:
-                    if result[-1]=='/': result=result[:-1]
+                    if result[-1] == '/':
+                        result = result[:-1]
                     result = result + "/" + extra_path
             return result
         return super(AWSS3Access, self).join(path, *paths)
 
-    def realpath(self, path):  # type: (Text) -> Text
+    def realpath(self, path):
         if path.startswith('s3:'):
             return path
         return os.path.realpath(path)
 
     def size(self, fn):
         s3session = self._connect(fn)
-        #raise Exception("size: getting size for {}".format(fn))
         if s3session:
             bucketname, path = self._parse_url(fn)
-            
             try:
-                s3bucket=s3session.client('s3')
-                object=s3bucket.head_object(Bucket=bucketname, Key=path)
-                size=object['ContentLength']
+                s3bucket = s3session.client('s3')
+                obj = s3bucket.head_object(Bucket=bucketname, Key=path)
+                size = obj['ContentLength']
                 return size
-            except :
+            except Exception:
                 return None
-
         return super(AWSS3Access, self).size(fn)
 
     def upload(self, file_handle, url):
         """s3 specific method to upload a file to the given URL."""
         s3session = self._connect(url)
         try:
-            s3bucket=s3session.client('s3')
-            bucketname,path=self._parse_url(url)
-            s3bucket.upload_file( Bucket=bucketname, Filename=file_handle, Key=path)
-        except:
-            raise Exception("Cannot store file {} to {}".format( file_handle, path))
+            s3bucket = s3session.client('s3')
+            bucketname, path = self._parse_url(url)
+            s3bucket.upload_file(
+                Bucket=bucketname,
+                Filename=file_handle,
+                Key=path)
+        except Exception as e:
+            raise Exception("Cannot store file {} to {}.{}".
+                            format(file_handle, path, e))
