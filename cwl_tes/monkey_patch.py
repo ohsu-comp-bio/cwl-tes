@@ -8,7 +8,8 @@ from typing import (
 )
 from schema_salad.ref_resolver import file_uri
 
-# Patch functions in argparse to enable correct parsing of non file:// inputs
+
+# Patch functions in argparse to enable parsing of s3:// URIs as inputs
 def FSActioncall(
     self,
     parser,

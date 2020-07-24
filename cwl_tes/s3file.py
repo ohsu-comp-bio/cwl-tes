@@ -51,6 +51,6 @@ class S3File(io.RawIOBase):
     def write(self, content):
         self.s3_object.put(Body=content)
         return True
-    
+
     def readable(self):
         return True
