@@ -122,13 +122,15 @@ class AWSS3Access(StdFsAccess):
             return S3File(s3_object)
         if 'w' in mode:
             # check if file exists
-            if self.exists( fn ):
-                raise Exception('Cannot override or append s3 objects. {} exists.'.format( fn ))
+            if self.exists(fn):
+                raise Exception(
+                    'Cannot override or append s3 objects. {} exists.'.
+                    format(fn))
             bucket, path = self._parse_url(fn)
             s3 = boto3.resource("s3")
             s3_object = s3.Object(bucket_name=bucket, key=path)
             return S3File(s3_object)
-        raise Exception('{} mode s3 not implemented'.format( mode ))
+        raise Exception('{} mode s3 not implemented'.format(mode))
 
     def exists(self, fn):  # type: (Text) -> bool
         if not fn.startswith("s3:"):

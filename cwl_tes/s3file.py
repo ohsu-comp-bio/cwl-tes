@@ -48,9 +48,9 @@ class S3File(io.RawIOBase):
             self.seek(offset=size, whence=io.SEEK_CUR)
         return self.s3_object.get(Range=range_header)["Body"].read()
 
-
     def write(self, content):
-        self.s3_object.put( Body=content )
+        self.s3_object.put(Body=content)
         return True
+    
     def readable(self):
         return True
