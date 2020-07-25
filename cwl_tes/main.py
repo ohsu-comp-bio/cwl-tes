@@ -170,19 +170,14 @@ def main(args=None):
             it just returns an instance of AWSS3Access"""
         def __init__(self, basedir):
             super(CachingS3FsAccess, self).__init__(basedir)
-
-    if parsed_args.remote_storage_url and \
-       parsed_args.remote_storage_url.startswith("ftp:"):
-        log.debug("Using ftp class for file management")
-        ftp_fs_access = CachingFtpFsAccess(
-            os.curdir,
-            insecure=parsed_args.insecure)
-        fs_access = ftp_fs_access
+    # keep as default the original behaviour (ftp)
+    fs_access = CachingFtpFsAccess(
+        os.curdir,
+        insecure=parsed_args.insecure)
+    # switch to s3 if the remote_storage_url is on s3
     if parsed_args.remote_storage_url and \
        parsed_args.remote_storage_url.startswith("s3:"):
-        log.debug("Using s3 class for file management")
-        s3_fs_access = CachingS3FsAccess(os.curdir)
-        fs_access = s3_fs_access
+        fs_access = CachingS3FsAccess(os.curdir)
 
     if parsed_args.remote_storage_url:
         str_uuid = str(uuid.uuid4())
