@@ -178,10 +178,9 @@ def main(args=None):
     if parsed_args.remote_storage_url and \
        parsed_args.remote_storage_url.startswith("s3:"):
         fs_access = CachingS3FsAccess(os.curdir)
-
-    if parsed_args.remote_storage_url:
-        str_uuid = str(uuid.uuid4())
-        fs_access.setUUID(str_uuid)
+    str_uuid = str(uuid.uuid4())
+    fs_access.setUUID(str_uuid)
+    if parsed_args.remote_storage_url:    
         parsed_args.remote_storage_url = fs_access.join(
             parsed_args.remote_storage_url, str_uuid)
     loading_context = cwltool.main.LoadingContext(vars(parsed_args))
