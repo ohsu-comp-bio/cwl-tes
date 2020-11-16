@@ -11,10 +11,19 @@ services:
   - docker
 install:
   - pip install tox-travis
-script:
-  - tox
 after_failure:
   - echo "FUNNEL LOGS ----------"
   - cat ./tests/test_tmp/conformance_test_v1.0_*/funnel_log.txt
 notifications:
   email: false
+
+jobs:
+  include:
+    - stage: all
+      script:
+        - tox
+    - script:
+        - make funnel
+        - make ftp-server
+        - make funnel-server
+        - make ftp-test
