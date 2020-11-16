@@ -2,11 +2,12 @@ dist: xenial
 sudo: required
 language: python
 cache: pip
+
+git:
+  submodules: true
+
 python:
-  - 2.7
-  - 3.5
-  - 3.6
-  - 3.7
+  - 3.8
 services:
   - docker
 install:
@@ -27,3 +28,5 @@ jobs:
         - make ftp-server
         - make funnel-server
         - make ftp-test
+      env:
+        - n=ftp

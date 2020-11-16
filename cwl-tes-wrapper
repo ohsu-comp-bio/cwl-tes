@@ -2,4 +2,8 @@
 
 BDIR="$(cd `dirname $0`; pwd)"
 
-$BDIR/cwl-tes --tes http://localhost:8000 $*
+if [[ -v CWL_TES_REMOTE_STORAGE ]]; then
+  $BDIR/cwl-tes --tes http://localhost:8000 --remote-storage-url $CWL_TES_REMOTE_STORAGE $*
+else
+  $BDIR/cwl-tes --tes http://localhost:8000 $*
+fi
