@@ -25,4 +25,4 @@ stdout: sha
 
 baseCommand: ["openssl", "dgst"]
 
-arguments: ["-sha"]
+arguments: ["-sha1"]
