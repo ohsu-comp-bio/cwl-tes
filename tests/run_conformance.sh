@@ -7,7 +7,7 @@ if [ -n "$1" ]; then
 fi
 
 pushd $BDIR/schemas
-./run_test.sh $TEST RUNNER=$BDIR/../cwl-tes DRAFT=v1.0
+./run_test.sh $TEST RUNNER=$BDIR/../cwl-tes-wrapper DRAFT=v1.0
 ## cleanup tmp dirs from execution
 rm -rf v1.0[0-9a-zA-Z_]*
 popd

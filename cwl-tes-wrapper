@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+BDIR="$(cd `dirname $0`; pwd)"
+
+$BDIR/cwl-tes --tes http://localhost:8000 $*
