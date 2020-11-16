@@ -4,7 +4,7 @@ funnel:
 	@tar xvzf funnel-linux-amd64-0.10.0.tar.gz funnel
 
 funnel-server: funnel
-	@./funnel server run &
+	@./funnel server run --Logger.OutputFile funnel.logs &
 
 ftp-server:
 	@docker run -d --name ftpd_server -p 21:21 -p 30000-30099:30000-30099 \
