@@ -166,8 +166,10 @@ class FtpFsAccess(StdFsAccess):
         ftp = self._connect(fn)
         if ftp:
             try:
-                self.size(fn)
-                return True
+                if not self.size(fn) is None:
+                    return True
+                else:
+                    return False
             except ftplib.all_errors:
                 return False
         return super(FtpFsAccess, self).isfile(fn)
