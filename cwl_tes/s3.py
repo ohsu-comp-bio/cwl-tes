@@ -19,7 +19,7 @@ from .s3file import S3File
 
 class AWSS3Access(StdFsAccess):
     """AWS s3 access with upload."""
-    def __init__(self, basedir, cache=None):  # type: (Text) -> None
+    def __init__(self, basedir, cache=None, insecure=False):  # type: (Text) -> None
         super(AWSS3Access, self).__init__(basedir)
         self.cache = cache or {}
         self.uuid = None

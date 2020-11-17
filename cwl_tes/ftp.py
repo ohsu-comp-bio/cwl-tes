@@ -9,7 +9,7 @@ import netrc
 import glob
 import os
 from typing import List, Text  # noqa F401 # pylint: disable=unused-import
-import sys
+
 from six import PY2
 from six.moves import urllib
 from schema_salad.ref_resolver import uri_file_path
@@ -31,7 +31,6 @@ def abspath(src, basedir):  # type: (Text, Text) -> Text
             apath = src if os.path.isabs(src) else basedir + '/' + src
         else:
             apath = src if os.path.isabs(src) else os.path.join(basedir, src)
-
     return apath
 
 
@@ -42,7 +41,6 @@ class FtpFsAccess(StdFsAccess):
         super(FtpFsAccess, self).__init__(basedir)
         print("Initializing FTPFsAccess object")
         self.cache = cache or {}
-        self.uuid = None
         self.netrc = None
         self.insecure = insecure
         try:
@@ -155,8 +153,6 @@ class FtpFsAccess(StdFsAccess):
         return results
 
     def open(self, fn, mode):
-        print("ftp OPEN for {} {}".format(fn, mode))
-        sys.exit(1)
         if not fn.startswith("ftp:"):
             return super(FtpFsAccess, self).open(fn, mode)
         if 'r' in mode:

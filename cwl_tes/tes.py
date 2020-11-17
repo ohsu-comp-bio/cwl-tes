@@ -18,6 +18,7 @@ from pprint import pformat
 from typing import (Any, Callable, Dict, List, MutableMapping, MutableSequence,
                     Optional, Union)
 from typing_extensions import Text
+
 import tes
 from six.moves import urllib
 
@@ -28,7 +29,7 @@ from cwltool.builder import Builder
 from cwltool.command_line_tool import CommandLineTool
 from cwltool.context import RuntimeContext
 from cwltool.errors import WorkflowException, UnsupportedRequirement
-# from cwltool.expression import JSON
+from cwltool.expression import JSON
 from cwltool.job import JobBase
 from cwltool.stdfsaccess import StdFsAccess
 from cwl_tes.s3 import AWSS3Access
@@ -64,7 +65,6 @@ class TESCommandLineTool(CommandLineTool):
     def make_path_mapper(self, reffiles, stagedir, runtimeContext,
                          separateDirs):
         if self.remote_storage_url:
-
             return TESPathMapper(
                 reffiles, runtimeContext.basedir, stagedir, separateDirs,
                 runtimeContext.make_fs_access(self.remote_storage_url or ""))
@@ -77,12 +77,10 @@ class TESCommandLineTool(CommandLineTool):
                 uuid.uuid4())
         else:
             remote_storage_url = ""
-
         return functools.partial(TESTask, runtime_context=runtimeContext,
                                  url=self.url, spec=self.spec,
                                  remote_storage_url=remote_storage_url,
-                                 token=self.token,
-                                 )
+                                 token=self.token)
 
 
 class TESPathMapper(PathMapper):
@@ -137,6 +135,8 @@ class TESPathMapper(PathMapper):
         url = urllib.parse.urlparse(path)
         if url.scheme == 's3':
             return path
+        if url.scheme == 'ftp':
+            return path
         elif url.scheme == "" or url.scheme == 'file':
             with NamedTemporaryFile(mode='wb', delete=False) as dest:
                 with self.fs_access.open(path, mode="rb") as handle:
@@ -149,11 +149,8 @@ class TESPathMapper(PathMapper):
             raise Exception("Unknown scheme for file {}".format(path))
 
     def visit(self, obj, stagedir, basedir, copy=False, staged=False):
-        # the target has to be a path otherwise FUNNEL does not work
-
         tgt = convert_pathsep_to_unix(
-                os.path.join(stagedir, obj["basename"]))
-
+            os.path.join(stagedir, obj["basename"]))
         if obj["location"] in self._pathmap:
             return
         if obj["class"] == "Directory":
@@ -172,7 +169,6 @@ class TESPathMapper(PathMapper):
                 obj.get("listing", []), tgt, basedir, copy=copy, staged=staged)
         elif obj["class"] == "File":
             path = obj["location"]
-
             abpath = abspath(path, basedir)
             if "contents" in obj and obj["location"].startswith("_:"):
                 self._pathmap[obj["location"]] = MapperEnt(
@@ -184,9 +180,7 @@ class TESPathMapper(PathMapper):
                     if urllib.parse.urlsplit(deref).scheme in [
                             'http', 'https']:
                         deref = downloadHttpFile(path)
-                    elif urllib.parse.urlsplit(deref).scheme == 'ftp':
-                        deref = self._download_remote_file(path)
-                    elif urllib.parse.urlsplit(deref).scheme == 's3':
+                    elif urllib.parse.urlsplit(deref).scheme in ['ftp', 's3']:
                         deref = self._download_remote_file(path)
                     else:
                         log.warning("unprocessed File %s", obj)
@@ -197,6 +191,7 @@ class TESPathMapper(PathMapper):
                             deref = rl if os.path.isabs(rl) \
                                 else os.path.join(os.path.dirname(deref), rl)
                             st = os.lstat(deref)
+
                     self._pathmap[path] = MapperEnt(
                         deref,
                         tgt,
@@ -211,7 +206,7 @@ class TESTask(JobBase):
 
     def __init__(self,
                  builder,   # type: Builder
-                 joborder,
+                 joborder,  # type: JSON
                  make_path_mapper,  # type: Callable[..., PathMapper]
                  requirements,  # type: List[Dict[Text, Text]]
                  hints,  # type: List[Dict[Text, Text]]
@@ -229,7 +224,6 @@ class TESTask(JobBase):
         self.outputs = None
         self.inplace_update = False
         self.basedir = runtime_context.basedir or os.getcwd()
-
         self.fs_access = StdFsAccess(self.basedir)
 
         self.id = None
@@ -329,8 +323,7 @@ class TESTask(JobBase):
 
                 log.critical(" Location is set to {}". format(loc))
                 with self.fs_access.open(loc, "wb") as gen:
-                    gen.write(str(item["contents"]).encode('utf-8'))
-
+                    gen.write(item["contents"])
             else:
                 loc = item["location"]
 
@@ -464,7 +457,6 @@ class TESTask(JobBase):
                 ram_gb=ram,
                 disk_gb=disk
             ),
-
             tags={"CWLDocumentId": self.spec.get("id"),
                   "tool_name": self.name,
                   "job_id": get_job_id(self.remote_storage_url),
