@@ -695,7 +695,7 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
     exgroup.add_argument(
         "--compute-checksum",
         action="store_true",
-        default=True,
+        default=False,
         help="Compute checksum of contents while collecting outputs",
         dest="compute_checksum")
     exgroup.add_argument(

@@ -6,6 +6,9 @@ funnel:
 funnel-server: funnel
 	@./funnel server run --Logger.OutputFile funnel.logs &
 
+funnel-minio-server: funnel
+	@./funnel server run -c tests/funnel-minio.yaml &
+
 ftp-server:
 	@docker run -d --name ftpd_server -p 21:21 -p 30000-30099:30000-30099 \
 	-e PUBLICHOST=localhost -e FTP_MAX_CLIENTS=50 -e FTP_MAX_CONNECTIONS=50 \

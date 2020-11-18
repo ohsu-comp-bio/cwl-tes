@@ -172,9 +172,11 @@ class S3FsAccess(StdFsAccess):
                         Bucket=bucketname,
                         Prefix=path)
             count = 0
-            for elem in resp["Contents"]:
-                if elem["Key"].startswith(path + "/"):
-                    count += 1
+            print("IsDir ", fn, resp)
+            if "Contents" in resp:
+                for elem in resp["Contents"]:
+                    if elem["Key"].startswith(path + "/"):
+                        count += 1
             return count > 0
         return super(S3FsAccess, self).isdir(fn)
 
@@ -236,6 +238,7 @@ class S3FsAccess(StdFsAccess):
                 s3bucket = s3session.client('s3', endpoint_url=endpoint)
                 obj = s3bucket.head_object(Bucket=bucketname, Key=path)
                 size = obj['ContentLength']
+                print("Size", fn, obj)
                 return size
             except Exception as e:
                 return None

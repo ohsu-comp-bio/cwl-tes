@@ -20,13 +20,17 @@ notifications:
 
 jobs:
   include:
-    - stage: all
-      script:
-        - tox
     - script:
         - make funnel
         - make ftp-server
         - make funnel-server
-        - make ftp-test
+        - make ftp-conformance
       env:
         - n=ftp
+    - script:
+        - make funnel
+        - make minio-server
+        - make funnel-minio-server
+        - make s3-conformance
+      env:
+        - n=s3
