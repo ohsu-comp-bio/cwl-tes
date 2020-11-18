@@ -8,6 +8,8 @@ import boto3
 import os
 from typing import List, Text  # noqa F401 # pylint: disable=unused-import
 
+import logging
+
 from six.moves import urllib
 # from typing import Tuple, Optional
 # import re
@@ -16,38 +18,39 @@ from .ftp import abspath
 
 from .s3file import S3File
 
+log = logging.getLogger("tes-backend")
 
-class AWSS3Access(StdFsAccess):
-    """AWS s3 access with upload."""
-    def __init__(self, basedir, cache=None, insecure=False):  # type: (Text) -> None
-        super(AWSS3Access, self).__init__(basedir)
+class S3FsAccess(StdFsAccess):
+    """S3 access with upload."""
+    def __init__(self, basedir, cache=None, insecure=False, endpoint_url=None):  # type: (Text) -> None
+        super(S3FsAccess, self).__init__(basedir)
+        log.info("Initializing S3Access object")
         self.cache = cache or {}
         self.uuid = None
+        self.endpoint_url = endpoint_url
 
     def _parse_url(self, url):
         parse = urllib.parse.urlparse(url)
-#         if re.search("aws.+\.com", parse.netloc):
-#             bucketM=re.search("(.+?)(/.*)", parse.path)
-#             bucket=bucketM[1]
-#             if bucket[0]=='/':
-#                 bucket = bucket[1:]
-#
-#             parse = parse._replace(netloc=bucket)
-#             parse = parse._replace(path=bucketM[2])
-#
-#             url = urllib.parse.urlunparse(parse)
-#             parse = self._parse_url(url)
-        bucket = parse.netloc
-        path = parse.path
-        if path[0] == '/':
-            path = path[1:]
-        return bucket, path
+        if parse.scheme in ["s3+http", "s3+https"]:
+            tmp = parse.path.split("/")
+            if len(tmp[0]) == 0:
+                tmp.pop(0)
+            bucket = tmp[0]
+            path = "/".join(tmp[1:])
+            endpoint = parse.scheme.split("+")[1] + "://" + parse.netloc
+            return endpoint, bucket, path
+        else:
+            bucket = parse.netloc
+            path = parse.path
+            if path[0] == '/':
+                path = path[1:]
+            return self.endpoint_url, bucket, path
 
     def _connect(self, url):
         '''caches and returns the s3 connection '''
         parse = urllib.parse.urlparse(url)
-        if parse.scheme == 's3':
-            bucketname, _ = self._parse_url(url)
+        if parse.scheme in ["s3", "s3+http", "s3+https"]:
+            endpoint, bucketname, path = self._parse_url(url)
             if (bucketname) in self.cache:
                 return self.cache[(bucketname)]
             session = boto3.session.Session()
@@ -66,7 +69,7 @@ class AWSS3Access(StdFsAccess):
 
     def glob(self, pattern):
         if not self.basedir.startswith("s3:"):
-            return super(AWSS3Access, self).glob(pattern)
+            return super(S3FsAccess, self).glob(pattern)
         return self._glob(pattern)
 
     def _glob0(self, basename, basepath):
@@ -81,7 +84,7 @@ class AWSS3Access(StdFsAccess):
     def _glob1(self, pattern, basepath=None):
         try:
             names = self.listdir(basepath)
-        except Exception:
+        except Exception as e:
             return []
         if pattern[0] != '.':
             names = filter(lambda x: x[0] != '.', names)
@@ -114,10 +117,10 @@ class AWSS3Access(StdFsAccess):
 
     def open(self, fn, mode):
         if not fn.startswith("s3:"):
-            return super(AWSS3Access, self).open(fn, mode)
+            return super(S3FsAccess, self).open(fn, mode)
         if 'r' in mode:
-            bucket, path = self._parse_url(fn)
-            s3 = boto3.resource("s3")
+            endpoint, bucket, path = self._parse_url(fn)
+            s3 = boto3.resource("s3", endpoint_url=endpoint)
             s3_object = s3.Object(bucket_name=bucket, key=path)
             return S3File(s3_object)
         if 'w' in mode:
@@ -133,9 +136,10 @@ class AWSS3Access(StdFsAccess):
         raise Exception('{} mode s3 not implemented'.format(mode))
 
     def exists(self, fn):  # type: (Text) -> bool
-        if not fn.startswith("s3:"):
-            return super(AWSS3Access, self).exists(fn)
-        return self.isfile(fn) or self.isdir(fn)
+        s3session = self._connect(fn)
+        if s3session:
+            return self.isfile(fn) or self.isdir(fn)
+        return super(S3FsAccess, self).exists(fn)
 
     def isfile(self, fn):  # type: (Text) -> bool
         s3session = self._connect(fn)
@@ -145,57 +149,57 @@ class AWSS3Access(StdFsAccess):
                 if sz is None:
                     return False
                 return True
-            except Exception:
+            except Exception as e:
                 return False
-        return super(AWSS3Access, self).isfile(fn)
+        return super(S3FsAccess, self).isfile(fn)
 
     def isdir(self, fn):
-        ''' to check if a fn is really a directory
-            we list all the objects under this prefix
-            It is important not to have a / at teh beginnint of the path'''
+        '''
+        Check if a bucket resource exists and is a directory.
+        Note: S3 does not really distinguish between files and directory.
+        Consequently, this function (and `isfile`) merely check that the
+        given object exists.
+        '''
         s3session = self._connect(fn)
         if s3session:
-            try:
-                (bucketname, path) = self._parse_url(fn)
-                if path[0] == '/':
-                    path = path[1:]
-                if path[-1] != '/':
-                    path = path + '/'
-                contents = 0
-                s3bucket = s3session.client('s3')
-                for o in s3bucket.list_objects_v2(
+            endpoint, bucketname, path = self._parse_url(fn)
+            s3bucket = s3session.client('s3', endpoint_url=endpoint)
+            if path[0] == '/':
+                path = path[1:]
+            if path[-1] == '/':
+                path = path[:-1]
+            resp = s3bucket.list_objects_v2(
                         Bucket=bucketname,
-                        Prefix=path)['Contents']:
-                    contents = contents + 1
-                    if contents > 0:
-                        return True
-                return False
-            except Exception:
-                return False
-        return super(AWSS3Access, self).isdir(fn)
+                        Prefix=path)
+            count = 0
+            for elem in resp["Contents"]:
+                if elem["Key"].startswith(path + "/"):
+                    count += 1
+            return count > 0
+        return super(S3FsAccess, self).isdir(fn)
 
     def mkdir(self, url, recursive=True):
         """Make the directory specified in the URL.
            For s3 it just creates an ojbect that ends with /"""
         s3session = self._connect(url)
-        bucketname, path = self._parse_url(url)
+        endpoint, bucketname, path = self._parse_url(url)
         if path[0] == '/':
             path = path[1:]
         if path[-1] != '/':
             path = path + '/'
         try:
-            s3bucket = s3session.client('s3')
-            s3bucket.put_object(Bucket=bucketname, Key=path)
+            s3bucket = s3session.client('s3', endpoint_url=endpoint)
+            resp = s3bucket.put_object(Bucket=bucketname, Key=path)
             return True
-        except Exception:
+        except Exception as e:
             return False
         return None
 
     def listdir(self, fn):  # type: (Text) -> List[Text]
         s3session = self._connect(fn)
         if s3session:
-            bucketname, path = self._parse_url(fn)
-            s3bucket = s3session.client('s3')
+            endpoint, bucketname, path = self._parse_url(fn)
+            s3bucket = s3session.client('s3', endpoint_url=endpoint)
             if path[0] == '/':
                 path = path[1:]
             if path[-1] != '/':
@@ -204,7 +208,7 @@ class AWSS3Access(StdFsAccess):
                     for x in s3bucket.list_objects_v2(
                         Bucket=bucketname,
                         Prefix=path)['Contents']]
-        return super(AWSS3Access, self).listdir(fn)
+        return super(S3FsAccess, self).listdir(fn)
 
     def join(self, path, *paths):
         if path.startswith('s3:'):
@@ -217,7 +221,7 @@ class AWSS3Access(StdFsAccess):
                         result = result[:-1]
                     result = result + "/" + extra_path
             return result
-        return super(AWSS3Access, self).join(path, *paths)
+        return super(S3FsAccess, self).join(path, *paths)
 
     def realpath(self, path):
         if path.startswith('s3:'):
@@ -227,26 +231,26 @@ class AWSS3Access(StdFsAccess):
     def size(self, fn):
         s3session = self._connect(fn)
         if s3session:
-            bucketname, path = self._parse_url(fn)
+            endpoint, bucketname, path = self._parse_url(fn)
             try:
-                s3bucket = s3session.client('s3')
+                s3bucket = s3session.client('s3', endpoint_url=endpoint)
                 obj = s3bucket.head_object(Bucket=bucketname, Key=path)
                 size = obj['ContentLength']
                 return size
-            except Exception:
+            except Exception as e:
                 return None
-        return super(AWSS3Access, self).size(fn)
+        return super(S3FsAccess, self).size(fn)
 
     def upload(self, file_handle, url):
         """s3 specific method to upload a file to the given URL."""
         s3session = self._connect(url)
-        try:
-            s3bucket = s3session.client('s3')
-            bucketname, path = self._parse_url(url)
-            s3bucket.upload_file(
-                Bucket=bucketname,
-                Filename=file_handle,
-                Key=path)
-        except Exception as e:
-            raise Exception("Cannot store file {} to {}.{}".
-                            format(file_handle, path, e))
+        #try:
+        endpoint, bucketname, path = self._parse_url(url)
+        s3bucket = s3session.client('s3', endpoint_url=endpoint)
+        s3bucket.upload_fileobj(
+            Fileobj=file_handle,
+            Bucket=bucketname,
+            Key=path)
+        #except Exception as e:
+        #    raise Exception("Cannot store file {} to {}.{}".
+        #                    format(file_handle, path, e))

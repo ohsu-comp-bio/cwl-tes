@@ -26,7 +26,7 @@ ftp-conformance:
 minio-server:
 		@docker run -d -p 9000:9000 -v `pwd`/data:/data minio/minio server /data
 
-s3-conformance: export CWL_TES_REMOTE_STORAGE = s3://localhost:9000/cwl-tes
+s3-conformance: export CWL_TES_REMOTE_STORAGE = s3://cwl-tes --endpoint-url http://localhost:9000
 
 s3-conformance:
 	@./tests/run_conformance.sh

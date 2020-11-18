@@ -32,7 +32,7 @@ from cwltool.errors import WorkflowException, UnsupportedRequirement
 from cwltool.expression import JSON
 from cwltool.job import JobBase
 from cwltool.stdfsaccess import StdFsAccess
-from cwl_tes.s3 import AWSS3Access
+from cwl_tes.s3 import S3FsAccess
 
 from cwltool.pathmapper import (PathMapper, uri_file_path, MapperEnt,
                                 downloadHttpFile)
@@ -130,12 +130,10 @@ class TESPathMapper(PathMapper):
     def _download_remote_file(self, path):
         """ returns the file name of a local file
             with the contents of the remote file.
-            If the file is an s3 object we
-            don't need to download it, just return the s3 URI"""
+            If the file is an remote object we
+            don't need to download it, just return the URI"""
         url = urllib.parse.urlparse(path)
-        if url.scheme == 's3':
-            return path
-        if url.scheme == 'ftp':
+        if url.scheme in ['s3', 'ftp', 's3+http', 's3+https']:
             return path
         elif url.scheme == "" or url.scheme == 'file':
             with NamedTemporaryFile(mode='wb', delete=False) as dest:
@@ -180,7 +178,7 @@ class TESPathMapper(PathMapper):
                     if urllib.parse.urlsplit(deref).scheme in [
                             'http', 'https']:
                         deref = downloadHttpFile(path)
-                    elif urllib.parse.urlsplit(deref).scheme in ['ftp', 's3']:
+                    elif urllib.parse.urlsplit(deref).scheme in ['ftp', 's3', 's3+http', 's3+https']:
                         deref = self._download_remote_file(path)
                     else:
                         log.warning("unprocessed File %s", obj)
@@ -193,9 +191,7 @@ class TESPathMapper(PathMapper):
                             st = os.lstat(deref)
 
                     self._pathmap[path] = MapperEnt(
-                        deref,
-                        tgt,
-                        "WritableFile" if copy else "File", staged)
+                        deref, tgt, "WritableFile" if copy else "File", staged)
                     self.visitlisting(
                         obj.get("secondaryFiles", []), stagedir, basedir,
                         copy=copy, staged=staged)
@@ -243,7 +239,7 @@ class TESTask(JobBase):
         # if the remote storage is s3 w edon't want any local directory,
         # since it is not available to the AWS instances.
         if urllib.parse.urlparse(self.remote_storage_url).scheme == "s3":
-            self.fs_access = AWSS3Access(self.basedir)
+            self.fs_access = S3FsAccess(self.basedir)
             self.basedir = self.remote_storage_url
         self.token = token
 

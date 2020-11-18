@@ -33,7 +33,8 @@ from cwltool.process import Process
 from .tes import make_tes_tool, TESPathMapper
 from .__init__ import __version__
 from .ftp import FtpFsAccess
-from .s3 import AWSS3Access
+from .s3 import S3FsAccess
+from cwltool.stdfsaccess import StdFsAccess
 
 log = logging.getLogger("tes-backend")
 log.setLevel(logging.INFO)
@@ -56,10 +57,10 @@ def versionstring():
     return "%s %s with cwltool %s" % (sys.argv[0], __version__, cwltool_ver)
 
 
-def ftp_upload(base_url, fs_access, cwl_obj):
+def fs_upload(base_url, fs_access, cwl_obj):
     # type: (Text, FtpFsAccess, Dict[Text, Any]) -> None
     """
-    Upload a File or Directory to the given FTP URL;
+    Upload a File or Directory to the given file URL;
 
     Update the location URL to match.
     """
@@ -86,7 +87,7 @@ def ftp_upload(base_url, fs_access, cwl_obj):
     cwl_obj.pop("path", None)
     if is_dir:
         if fs_access.isdir(fs_access.join(base_url, basename)):
-            log.warning("FTP upload, Directory %s already exists", basename)
+            log.warning("FS upload, Directory %s already exists", basename)
         else:
             for root, _subdirs, files in os.walk(path, followlinks=True):
                 root_path = base_url + '/' + root[len(dirname):]
@@ -103,6 +104,11 @@ def ftp_upload(base_url, fs_access, cwl_obj):
             with open(path, mode="rb") as source:
                 fs_access.upload(source, cwl_obj["location"])
 
+def is_ftp_url(b):
+    return b.startswith("ftp:")
+
+def is_s3_url(b):
+    return b.startswith("s3:") or b.startswith("s3+http:") or b.startswith("s3+https:")
 
 def main(args=None):
     """Main entrypoint for cwl-tes."""
@@ -160,19 +166,20 @@ def main(args=None):
             super(CachingFtpFsAccess, self).__init__(
                 basedir, ftp_cache, insecure=insecure)
 
-    class CachingS3FsAccess(AWSS3Access):
+    class CachingS3FsAccess(S3FsAccess):
         """ created only for homogeneity with the FTP counterpart.
-            it just returns an instance of AWSS3Access"""
-        def __init__(self, basedir, insecure=False):
-            super(CachingS3FsAccess, self).__init__(basedir)
+            it just returns an instance of S3FsAccess"""
+        def __init__(self, basedir, insecure=False, endpoint_url=None):
+            super(CachingS3FsAccess, self).__init__(basedir, endpoint_url=endpoint_url)
 
     # keep as default the original behaviour (ftp)
-    fs_access = CachingFtpFsAccess(
-        os.curdir, insecure=parsed_args.insecure)
+    fs_access = StdFsAccess(os.curdir)
     # switch to s3 if the remote_storage_url is on s3
-    if parsed_args.remote_storage_url and \
-       parsed_args.remote_storage_url.startswith("s3:"):
-        fs_access = CachingS3FsAccess(os.curdir)
+    if parsed_args.remote_storage_url:
+        if is_ftp_url(parsed_args.remote_storage_url):
+            fs_access = CachingFtpFsAccess(os.curdir, insecure=parsed_args.insecure)
+        if is_s3_url(parsed_args.remote_storage_url):
+            fs_access = CachingS3FsAccess(os.curdir, endpoint_url=parsed_args.endpoint_url)
     if parsed_args.remote_storage_url:
         parsed_args.remote_storage_url = fs_access.join(
             parsed_args.remote_storage_url, str_uuid)
@@ -184,10 +191,10 @@ def main(args=None):
     runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
 
     if parsed_args.remote_storage_url:
-        if parsed_args.remote_storage_url.startswith("s3:"):
+        if is_s3_url(parsed_args.remote_storage_url):
             runtime_context.make_fs_access = functools.partial(
-            CachingS3FsAccess, insecure=parsed_args.insecure)
-        elif parsed_args.remote_storage_url.startswith("ftp:"):
+            CachingS3FsAccess, insecure=parsed_args.insecure, endpoint_url=parsed_args.endpoint_url)
+        elif is_ftp_url(parsed_args.remote_storage_url):
             runtime_context.make_fs_access = functools.partial(
             CachingFtpFsAccess, insecure=parsed_args.insecure)
         else:
@@ -202,7 +209,7 @@ def main(args=None):
         tes_execute, job_executor=job_executor,
         loading_context=loading_context,
         remote_storage_url=parsed_args.remote_storage_url,
-        ftp_access=fs_access)
+        fs_access=fs_access)
     runtime_context.str_uuid = str_uuid
     return cwltool.main.main(
         args=parsed_args,
@@ -220,7 +227,7 @@ def tes_execute(process,           # type: Process
                 job_executor,      # type: JobExecutor
                 loading_context,   # type: LoadingContext
                 remote_storage_url,
-                ftp_access,
+                fs_access,
                 logger=log
                 ):  # type: (...) -> Tuple[Optional[Dict[Text, Any]], Text]
     """
@@ -230,7 +237,7 @@ def tes_execute(process,           # type: Process
     https://github.com/curoverse/arvados/blob/2b0b06579199967eca3d44d955ad64195d2db3c3/sdk/cwl/arvados_cwl/__init__.py#L407
     """
     if remote_storage_url:
-        upload_workflow_deps_ftp(process, remote_storage_url, ftp_access)
+        upload_workflow_deps(process, remote_storage_url, fs_access)
         # Reload tool object which may have been updated by
         # upload_workflow_deps
         # Don't validate this time because it will just print redundant errors.
@@ -241,15 +248,15 @@ def tes_execute(process,           # type: Process
         loading_context.do_validate = False
         process = loading_context.construct_tool_object(
             process.doc_loader.idx[process.tool["id"]], loading_context)
-        job_order = upload_job_order_ftp(
-            process, job_order, remote_storage_url, ftp_access)
+        job_order = upload_job_order(
+            process, job_order, remote_storage_url, fs_access)
 
     if not job_executor:
         job_executor = MultithreadedJobExecutor()
     return job_executor(process, job_order, runtime_context, logger)
 
 
-def upload_workflow_deps_ftp(process, remote_storage_url, ftp_access):
+def upload_workflow_deps(process, remote_storage_url, fs_access):
     """
     Ensure that all default files in this workflow are uploaded.
 
@@ -260,16 +267,16 @@ def upload_workflow_deps_ftp(process, remote_storage_url, ftp_access):
 
     def upload_tool_deps(deptool):
         if "id" in deptool:
-            upload_dependencies_ftp(document_loader, deptool, deptool["id"],
-                                    True, remote_storage_url, ftp_access)
+            upload_dependencies(document_loader, deptool, deptool["id"],
+                                    True, remote_storage_url, fs_access)
             document_loader.idx[deptool["id"]] = deptool
     process.visit(upload_tool_deps)
 
 
-def upload_dependencies_ftp(document_loader, workflowobj, uri, loadref_run,
-                            remote_storage_url, ftp_access):
+def upload_dependencies(document_loader, workflowobj, uri, loadref_run,
+                            remote_storage_url, fs_access):
     """
-    Upload the dependencies of the workflowobj document to an FTP location.
+    Upload the dependencies of the workflowobj document to an storage location.
 
     Does an in-place update of references in "workflowobj".
     Use scandeps to find $import, $include, $schemas, run, File and Directory
@@ -317,7 +324,7 @@ def upload_dependencies_ftp(document_loader, workflowobj, uri, loadref_run,
                 fileobj["location"] = fileobj["path"]
                 del fileobj["path"]
             if "location" in fileobj \
-                    and not ftp_access.exists(fileobj["location"]):
+                    and not fs_access.exists(fileobj["location"]):
                 # Delete "default" from workflowobj
                 remove[0] = True
         visit_class(obj["default"], ("File", "Directory"),
@@ -343,13 +350,13 @@ def upload_dependencies_ftp(document_loader, workflowobj, uri, loadref_run,
         if not entry.startswith("file:"):
             del discovered[entry]
     visit_class(workflowobj, ("Directory"), functools.partial(
-        ftp_upload, remote_storage_url, ftp_access))
+        fs_upload, remote_storage_url, fs_access))
     visit_class(workflowobj, ("File"), functools.partial(
-        ftp_upload, remote_storage_url, ftp_access))
+        fs_upload, remote_storage_url, fs_access))
     visit_class(discovered, ("Directory"), functools.partial(
-        ftp_upload, remote_storage_url, ftp_access))
+        fs_upload, remote_storage_url, fs_access))
     visit_class(discovered, ("File"), functools.partial(
-        ftp_upload, remote_storage_url, ftp_access))
+        fs_upload, remote_storage_url, fs_access))
 
 
 def find_defaults(item, operation):
@@ -403,7 +410,7 @@ def set_secondary(typedef, fileobj, discovered):
             set_secondary(typedef, entry, discovered)
 
 
-def upload_job_order_ftp(process, job_order, remote_storage_url, ftp_access):
+def upload_job_order(process, job_order, remote_storage_url, fs_access):
     """
     Upload local files referenced in the input object and return updated input
     object with 'location' updated to new URIs.
@@ -412,9 +419,9 @@ def upload_job_order_ftp(process, job_order, remote_storage_url, ftp_access):
     https://github.com/curoverse/arvados/blob/2b0b06579199967eca3d44d955ad64195d2db3c3/sdk/cwl/arvados_cwl/runner.py#L266
     """
     discover_secondary_files(process.tool["inputs"], job_order)
-    upload_dependencies_ftp(process.doc_loader, job_order,
+    upload_dependencies(process.doc_loader, job_order,
                             job_order.get("id", "#"), False,
-                            remote_storage_url, ftp_access)
+                            remote_storage_url, fs_access)
     if "id" in job_order:
         del job_order["id"]
     # Need to filter this out, gets added by cwltool when providing
@@ -433,6 +440,7 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
                         type=Text, default=os.path.abspath('.'),
                         help="Output directory, default current directory")
     parser.add_argument("--remote-storage-url", type=str)
+    parser.add_argument("--endpoint-url", type=str)
     parser.add_argument("--insecure", action="store_true",
                         help=("Connect securely to FTP server (ignored when "
                               "--remote-storage-url is not set)"))
