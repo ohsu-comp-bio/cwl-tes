@@ -34,6 +34,7 @@ from .tes import make_tes_tool, TESPathMapper
 from .__init__ import __version__
 from .ftp import FtpFsAccess
 from .s3 import S3FsAccess
+from .gs import GSFsAccess
 from cwltool.stdfsaccess import StdFsAccess
 
 log = logging.getLogger("tes-backend")
@@ -110,6 +111,9 @@ def is_ftp_url(b):
 def is_s3_url(b):
     return b.startswith("s3:") or b.startswith("s3+http:") or b.startswith("s3+https:")
 
+def is_gs_url(b):
+    return b.startswith("gs:")
+
 def main(args=None):
     """Main entrypoint for cwl-tes."""
     if args is None:
@@ -180,6 +184,8 @@ def main(args=None):
             fs_access = CachingFtpFsAccess(os.curdir, insecure=parsed_args.insecure)
         if is_s3_url(parsed_args.remote_storage_url):
             fs_access = CachingS3FsAccess(os.curdir, endpoint_url=parsed_args.endpoint_url)
+        if is_gs_url(parsed_args.remote_storage_url):
+            fs_access = CachingGSFsAccess(os.curdir)
     if parsed_args.remote_storage_url:
         parsed_args.remote_storage_url = fs_access.join(
             parsed_args.remote_storage_url, str_uuid)
@@ -197,6 +203,9 @@ def main(args=None):
         elif is_ftp_url(parsed_args.remote_storage_url):
             runtime_context.make_fs_access = functools.partial(
             CachingFtpFsAccess, insecure=parsed_args.insecure)
+        elif is_gs_url(parsed_args.remote_storage_url):
+            runtime_context.make_fs_access = functools.partial(
+            CachingGSFsAccess)
         else:
             raise Exception("Unknown Schema")
 
