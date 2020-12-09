@@ -11,7 +11,7 @@ python:
 services:
   - docker
 install:
-  - pip install tox-travis
+  - pip install -r requirements.txt
 after_failure:
   - echo "FUNNEL LOGS ----------"
   - cat ./tests/test_tmp/conformance_test_v1.0_*/funnel_log.txt
