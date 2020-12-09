@@ -1,7 +1,7 @@
 
 funnel:
-	@curl -L -O https://github.com/ohsu-comp-bio/funnel/releases/download/0.10.0/funnel-linux-amd64-0.10.0.tar.gz
-	@tar xvzf funnel-linux-amd64-0.10.0.tar.gz funnel
+	@curl -L -O https://github.com/ohsu-comp-bio/funnel/releases/download/0.10.0/funnel-linux-amd64-0.10.1.tar.gz
+	@tar xvzf funnel-linux-amd64-0.10.1.tar.gz funnel
 
 funnel-server: funnel
 	@./funnel server run --Logger.OutputFile funnel.logs &
