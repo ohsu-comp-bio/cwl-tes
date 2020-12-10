@@ -39,23 +39,32 @@ from .ftp import abspath
 log = logging.getLogger("tes-backend")
 
 
-def make_tes_tool(spec, loading_context, url, remote_storage_url, token):
+def make_tes_tool(spec, loading_context, url, remote_storage_url, token,
+                  lib=None, lib_helper=None):
     """cwl-tes specific factory for CWL Process generation."""
     if "class" in spec and spec["class"] == "CommandLineTool":
-        return TESCommandLineTool(
-            spec, loading_context, url, remote_storage_url, token)
+        if lib:
+            return TESCommandLineTool(
+                spec, loading_context, url, remote_storage_url, token,
+                lib, lib_helper)
+        else:
+            return TESCommandLineTool(
+                spec, loading_context, url, remote_storage_url, token)
     return default_make_tool(spec, loading_context)
 
 
 class TESCommandLineTool(CommandLineTool):
     """cwl-tes specific CommandLineTool."""
 
-    def __init__(self, spec, loading_context, url, remote_storage_url, token):
+    def __init__(self, spec, loading_context, url, remote_storage_url, token,
+                 lib=None, lib_helper=None):
         super(TESCommandLineTool, self).__init__(spec, loading_context)
         self.spec = spec
         self.url = url
         self.remote_storage_url = remote_storage_url
         self.token = token
+        self.lib = lib
+        self.lib_helper = lib_helper
 
     def make_path_mapper(self, reffiles, stagedir, runtimeContext,
                          separateDirs):
@@ -75,7 +84,9 @@ class TESCommandLineTool(CommandLineTool):
         return functools.partial(TESTask, runtime_context=runtimeContext,
                                  url=self.url, spec=self.spec,
                                  remote_storage_url=remote_storage_url,
-                                 token=self.token)
+                                 token=self.token,
+                                 lib=self.lib,
+                                 lib_helper=self.lib_helper)
 
 
 class TESPathMapper(PathMapper):
@@ -160,7 +171,9 @@ class TESTask(JobBase):
                  url,
                  spec,
                  remote_storage_url=None,
-                 token=None):
+                 token=None,
+                 lib=None,
+                 lib_helper=None):
         super(TESTask, self).__init__(builder, joborder, make_path_mapper,
                                       requirements, hints, name)
         self.runtime_context = runtime_context
@@ -178,6 +191,9 @@ class TESTask(JobBase):
         self.client = tes.HTTPClient(url, token=token)
         self.remote_storage_url = remote_storage_url
         self.token = token
+
+        self.lib = lib
+        self.lib_helper = lib_helper
 
     def get_container(self):
         default = self.runtime_context.default_container or "python:2.7"
@@ -389,6 +405,23 @@ class TESTask(JobBase):
         )
         log.info(pformat(task))
 
+        if self.lib:
+            try:
+                self.id = self.client.create_task(task)
+                log.info(
+                    "[job %s] SUBMITTED TASK ----------------------",
+                    self.name
+                )
+                log.info("[job %s] task id: %s ", self.name, self.id)
+                self.lib_helper(self.id)
+                return
+            except Exception as e:
+                log.error(
+                    "[job %s] Failed to submit task to TES service:\n%s",
+                    self.name, e
+                )
+                raise WorkflowException(e)
+
         try:
             self.id = self.client.create_task(task)
             log.info(
@@ -396,6 +429,7 @@ class TESTask(JobBase):
                 self.name
             )
             log.info("[job %s] task id: %s ", self.name, self.id)
+
         except Exception as e:
             log.error(
                 "[job %s] Failed to submit task to TES service:\n%s",

@@ -30,6 +30,8 @@ from cwltool.resolver import ga4gh_tool_registries
 from cwltool.pathmapper import visit_class
 from cwltool.process import Process
 
+import tempfile
+
 from .tes import make_tes_tool, TESPathMapper
 from .__init__ import __version__
 from .ftp import FtpFsAccess
@@ -718,5 +720,72 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
     return parser
 
 
+def non_interactive_executor(workflow_buffer,
+                             inputs_buffer,
+                             workflow_type,
+                             endpoint,
+                             *args):
+    class lib_helper():
+        task_id = None
+
+        @classmethod
+        def helper(cls, task_id):
+            cls.task_id = task_id
+
+    parser = arg_parser()
+    parsed_args = parser.parse_args(args)
+
+    """Importable function for running cwl commands asynchronously."""
+    ftp_cache = {}
+
+    temp_cwl = tempfile.NamedTemporaryFile()
+    temp_inputs = tempfile.NamedTemporaryFile()
+
+    temp_cwl.write(workflow_buffer)
+    temp_cwl.flush()
+    temp_inputs.write(inputs_buffer)
+    temp_inputs.flush()
+    args = (temp_inputs.name,) + args
+    args = (temp_cwl.name,) + args
+    parser = arg_parser()
+    parsed_args = parser.parse_args(args)
+
+    class CachingFtpFsAccess(FtpFsAccess):
+        """Ensures that the FTP connection cache is shared."""
+        def __init__(self, basedir):
+            super(CachingFtpFsAccess, self).__init__(basedir, ftp_cache)
+    ftp_fs_access = CachingFtpFsAccess(os.curdir)
+
+    loading_context = cwltool.main.LoadingContext()
+    loading_context.construct_tool_object = functools.partial(
+        make_tes_tool, url=endpoint,
+        remote_storage_url=None,
+        token=None,
+        lib=True,
+        lib_helper=lib_helper.helper)
+    runtime_context = cwltool.main.RuntimeContext()
+    runtime_context.make_fs_access = CachingFtpFsAccess
+    runtime_context.path_mapper = functools.partial(
+        TESPathMapper, fs_access=ftp_fs_access)
+    job_executor = SingleJobExecutor()
+    job_executor.max_ram = job_executor.max_cores = float("inf")
+    executor = functools.partial(
+        tes_execute, job_executor=job_executor,
+        loading_context=loading_context,
+        remote_storage_url=parsed_args.remote_storage_url,
+        ftp_access=ftp_fs_access)
+    cwltool.main.main(
+        args=parsed_args,
+        executor=executor,
+        loadingContext=loading_context,
+        runtimeContext=runtime_context,
+        versionfunc=versionstring,
+        logger_handler=console
+    )
+    return lib_helper.task_id
+
+
 if __name__ == "__main__":
     sys.exit(main())
+
+# Need to add temp file for cwl and inputs
