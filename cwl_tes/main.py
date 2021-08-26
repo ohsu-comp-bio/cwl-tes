@@ -178,7 +178,10 @@ def main(args=None):
     if parsed_args.remote_storage_url and \
        parsed_args.remote_storage_url.startswith("s3:"):
         fs_access = CachingS3FsAccess(os.curdir)
+    
     str_uuid = str(uuid.uuid4())
+    if parsed_args.uuid:
+        str_uuid = parsed_args.uuid
     fs_access.setUUID(str_uuid)
     if parsed_args.remote_storage_url:    
         parsed_args.remote_storage_url = fs_access.join(
@@ -700,7 +703,12 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
         "One of 'stop' or 'continue'. Default is 'stop'.",
         default="stop",
         choices=("stop", "continue"))
-
+    parser.add_argument(
+        "--workflow_id",
+        help="Workflow id. Default is to generate a new one",
+        default=None,
+        dest="uuid",
+        type=str)
     exgroup = parser.add_mutually_exclusive_group()
     exgroup.add_argument(
         "--compute-checksum",
