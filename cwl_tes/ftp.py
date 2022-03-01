@@ -40,7 +40,6 @@ class FtpFsAccess(StdFsAccess):
     def __init__(
             self, basedir, cache=None, insecure=False):  # type: (Text) -> None
         super(FtpFsAccess, self).__init__(basedir)
-        print("Initializing FTPFsAccess object")
         self.cache = cache or {}
         self.uuid = None
         self.netrc = None

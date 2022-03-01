@@ -64,7 +64,6 @@ class TESCommandLineTool(CommandLineTool):
     def make_path_mapper(self, reffiles, stagedir, runtimeContext,
                          separateDirs):
         if self.remote_storage_url:
-
             return TESPathMapper(
                 reffiles, runtimeContext.basedir, stagedir, separateDirs,
                 runtimeContext.make_fs_access(self.remote_storage_url or ""))
@@ -77,12 +76,10 @@ class TESCommandLineTool(CommandLineTool):
                 uuid.uuid4())
         else:
             remote_storage_url = ""
-
         return functools.partial(TESTask, runtime_context=runtimeContext,
                                  url=self.url, spec=self.spec,
                                  remote_storage_url=remote_storage_url,
-                                 token=self.token,
-                                 )
+                                 token=self.token)
 
 
 class TESPathMapper(PathMapper):
