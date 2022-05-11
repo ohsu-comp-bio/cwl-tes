@@ -171,8 +171,10 @@ class FtpFsAccess(StdFsAccess):
         ftp = self._connect(fn)
         if ftp:
             try:
-                self.size(fn)
-                return True
+                if not self.size(fn) is None:
+                    return True
+                else:
+                    return False
             except ftplib.all_errors:
                 return False
         return super(FtpFsAccess, self).isfile(fn)
@@ -208,10 +210,10 @@ class FtpFsAccess(StdFsAccess):
         if ftp:
             host, username, passwd, path = self._parse_url(fn)
             if username != "anonymous":
-                template = "ftp://{un}:{pw}@{0}/{1}"
+                template = "ftp://{un}:{pw}@{0}{1}/{2}"
             else:
-                template = "ftp://{0}/{1}"
-            return [template.format(host, item, un=username, pw=passwd)
+                template = "ftp://{0}{1}/{2}"
+            return [template.format(host, path, item, un=username, pw=passwd)
                     for item in ftp.nlst(path)]
         return super(FtpFsAccess, self).listdir(fn)
 
