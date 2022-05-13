@@ -27,7 +27,7 @@ from cwltool.process import scandeps, shortname
 from cwltool.executors import (MultithreadedJobExecutor, SingleJobExecutor,
                                JobExecutor)
 from cwltool.resolver import ga4gh_tool_registries
-from cwltool.pathmapper import visit_class
+from cwltool.utils import visit_class
 from cwltool.process import Process
 
 from .tes import make_tes_tool, TESPathMapper
@@ -164,12 +164,14 @@ def main(args=None):
     if parsed_args.remote_storage_url:
         parsed_args.remote_storage_url = ftp_fs_access.join(
             parsed_args.remote_storage_url, str(uuid.uuid4()))
-    loading_context = cwltool.main.LoadingContext(vars(parsed_args))
+    # loading_context = cwltool.main.LoadingContext(vars(parsed_args))
+    loading_context = cwltool.context.LoadingContext(vars(parsed_args))
     loading_context.construct_tool_object = functools.partial(
         make_tes_tool, url=parsed_args.tes,
         remote_storage_url=parsed_args.remote_storage_url,
         token=parsed_args.token)
-    runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
+    # runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
+    runtime_context = cwltool.context.RuntimeContext(vars(parsed_args))
     runtime_context.make_fs_access = functools.partial(
         CachingFtpFsAccess, insecure=parsed_args.insecure)
     runtime_context.path_mapper = functools.partial(
