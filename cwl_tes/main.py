@@ -123,7 +123,6 @@ def main(args=None):
             validation_options['verify_aud'] = False
             jwt.decode(
                 jwt=parsed_args.token,
-                verify=True,
                 key=parsed_args.token_public_key
                 .encode('utf-8')
                 .decode('unicode_escape'),
