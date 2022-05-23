@@ -38,20 +38,20 @@ setup(
     url="https://github.com/common-workflow-language/cwl-tes",
     license="Apache 2.0",
     packages=find_packages(),
-    python_requires=">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, <4",
+    python_requires="!=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, !=3.5*, <4",
     install_requires=[
-        "cwltool>=1.0.20181201184214",
+        "cwltool==1.0.20191022103248",
         "future>=0.16.0",
-        "py-tes>=0.3.0",
+        "py-tes>=0.4.0",
         "PyJWT>=1.6.4",
         "requests>=2.14.2",
-        "typing_extensions"
+        "typing_extensions>=3.7.4"
     ],
     extras_require={
         "test": [
-            "cwltool>=1.0.20181201184214",
+            "cwltest==1.0.20190228134645",
             "nose>=1.3.7",
-            "flake8>=3.5.0",
+            "flake8>=3.7.0",
             "PyYAML>=3.12"
         ]
     },
@@ -62,8 +62,8 @@ setup(
         "Development Status :: 3 - Alpha",
         "Natural Language :: English",
         "License :: OSI Approved :: Apache Software License",
-        "Programming Language :: Python :: 2.7",
-        "Programming Language :: Python :: 3.5",
         "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
     ],
 )

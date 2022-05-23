@@ -13,6 +13,7 @@ from typing import List, Text  # noqa F401 # pylint: disable=unused-import
 from six import PY2
 from six.moves import urllib
 from schema_salad.ref_resolver import uri_file_path
+from typing import Tuple, Optional
 
 from cwltool.stdfsaccess import StdFsAccess
 from cwltool.loghandler import _logger
@@ -35,10 +36,12 @@ def abspath(src, basedir):  # type: (Text, Text) -> Text
 
 class FtpFsAccess(StdFsAccess):
     """FTP access with upload."""
-    def __init__(self, basedir, cache=None):  # type: (Text) -> None
+    def __init__(
+            self, basedir, cache=None, insecure=False):  # type: (Text) -> None
         super(FtpFsAccess, self).__init__(basedir)
         self.cache = cache or {}
         self.netrc = None
+        self.insecure = insecure
         try:
             if 'HOME' in os.environ:
                 if os.path.exists(os.path.join(os.environ['HOME'], '.netrc')):
@@ -54,7 +57,7 @@ class FtpFsAccess(StdFsAccess):
         parse = urllib.parse.urlparse(url)
         user = parse.username
         passwd = parse.password
-        host = parse.netloc
+        host = parse.hostname
         path = parse.path
         if parse.scheme == 'ftp':
             if not user and self.netrc:
@@ -62,8 +65,12 @@ class FtpFsAccess(StdFsAccess):
                 if creds:
                     user, _, passwd = creds
         if not user:
-            user = "anonymous"
-            passwd = "anonymous@"
+            user, passwd = self._recall_credentials(host)
+            if passwd is None:
+                passwd = "anonymous@"
+                if user is None:
+                    user = "anonymous"
+
         return host, user, passwd, path
 
     def _connect(self, url):  # type: (Text) -> Optional[ftplib.FTP]
@@ -76,13 +83,19 @@ class FtpFsAccess(StdFsAccess):
             ftp = ftplib.FTP_TLS()
             ftp.set_debuglevel(1 if _logger.isEnabledFor(logging.DEBUG) else 0)
             ftp.connect(host)
-            ftp.login(user, passwd)
+            ftp.login(user, passwd, secure=not self.insecure)
             self.cache[(host, user, passwd)] = ftp
             return ftp
         return None
 
     def _abs(self, p):  # type: (Text) -> Text
         return abspath(p, self.basedir)
+
+    def _recall_credentials(self, desired_host):
+        for host, user, passwd in self.cache:
+            if desired_host == host:
+                return user, passwd
+        return None, None
 
     def glob(self, pattern):  # type: (Text) -> List[Text]
         if not self.basedir.startswith("ftp:"):
@@ -153,8 +166,10 @@ class FtpFsAccess(StdFsAccess):
         ftp = self._connect(fn)
         if ftp:
             try:
-                self.size(fn)
-                return True
+                if not self.size(fn) is None:
+                    return True
+                else:
+                    return False
             except ftplib.all_errors:
                 return False
         return super(FtpFsAccess, self).isfile(fn)
@@ -188,8 +203,13 @@ class FtpFsAccess(StdFsAccess):
     def listdir(self, fn):  # type: (Text) -> List[Text]
         ftp = self._connect(fn)
         if ftp:
-            host, _, _, path = self._parse_url(fn)
-            return ["ftp://{}/{}".format(host, x) for x in ftp.nlst(path)]
+            host, username, passwd, path = self._parse_url(fn)
+            if username != "anonymous":
+                template = "ftp://{un}:{pw}@{0}{1}/{2}"
+            else:
+                template = "ftp://{0}{1}/{2}"
+            return [template.format(host, path, item, un=username, pw=passwd)
+                    for item in ftp.nlst(path)]
         return super(FtpFsAccess, self).listdir(fn)
 
     def join(self, path, *paths):  # type: (Text, *Text) -> Text

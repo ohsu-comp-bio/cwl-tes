@@ -21,7 +21,7 @@ class TestConformance(SimpleServerTest):
         cmd = [
             "cwltest", "--test", ctest_def, "--basedir", self.tmpdir,
             "--tool", tool_entry, "-j", str(psutil.cpu_count()),
-            "-n", "1-121,123-129,131-133", "--", "--tes=http://localhost:8000"
+            "-n", "1-5,7-49,52-79,81-96,99-102,104-107", "--", "--tes=http://localhost:8000"
         ]
 
         testlog = os.path.join(
