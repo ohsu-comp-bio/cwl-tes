@@ -1,0 +1,22 @@
+name: CWL-TES
+
+on: [ pull_request ]
+
+jobs:
+
+  conformance:
+    name: Conformance
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v2
+    - name: Python Dependencies for Conformance
+      run: pip install -r requirements.txt
+    - name: Get funnel
+      run: make funnel
+    - name: Start FTP server
+      run: make ftp-server
+    - name: Start funnel server
+      run: make funnel-server
+    - name: Start conformance test
+      run: make ftp-conformance
