@@ -155,9 +155,12 @@ def main(args=None):
 
     class CachingFtpFsAccess(FtpFsAccess):
         """Ensures that the FTP connection cache is shared."""
-        def __init__(self, basedir):
-            super(CachingFtpFsAccess, self).__init__(basedir, ftp_cache)
-    ftp_fs_access = CachingFtpFsAccess(os.curdir)
+        def __init__(self, basedir, insecure=False):
+            super(CachingFtpFsAccess, self).__init__(
+                basedir, ftp_cache, insecure=insecure)
+
+    ftp_fs_access = CachingFtpFsAccess(
+        os.curdir, insecure=parsed_args.insecure)
     if parsed_args.remote_storage_url:
         parsed_args.remote_storage_url = ftp_fs_access.join(
             parsed_args.remote_storage_url, str(uuid.uuid4()))
@@ -167,7 +170,8 @@ def main(args=None):
         remote_storage_url=parsed_args.remote_storage_url,
         token=parsed_args.token)
     runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
-    runtime_context.make_fs_access = CachingFtpFsAccess
+    runtime_context.make_fs_access = functools.partial(
+        CachingFtpFsAccess, insecure=parsed_args.insecure)
     runtime_context.path_mapper = functools.partial(
         TESPathMapper, fs_access=ftp_fs_access)
     job_executor = MultithreadedJobExecutor() if parsed_args.parallel \
@@ -368,7 +372,7 @@ def set_secondary(typedef, fileobj, discovered):
     if isinstance(fileobj, MutableMapping) and fileobj.get("class") == "File":
         if "secondaryFiles" not in fileobj:
             fileobj["secondaryFiles"] = cmap(
-                [{"location": substitute(fileobj["location"], sf),
+                [{"location": substitute(fileobj["location"], sf["pattern"]),
                   "class": "File"} for sf in typedef["secondaryFiles"]])
             if discovered is not None:
                 discovered[fileobj["location"]] = fileobj["secondaryFiles"]
@@ -407,6 +411,9 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
                         type=Text, default=os.path.abspath('.'),
                         help="Output directory, default current directory")
     parser.add_argument("--remote-storage-url", type=str)
+    parser.add_argument("--insecure", action="store_true",
+                        help=("Connect securely to FTP server (ignored when "
+                              "--remote-storage-url is not set)"))
     parser.add_argument("--token", type=str)
     parser.add_argument("--token-public-key", type=str,
                         default=DEFAULT_TOKEN_PUBLIC_KEY)
