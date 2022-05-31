@@ -192,6 +192,9 @@ def main(args=None):
         make_fs_access = _create_s3_fs_access_factory(parsed_args)
         storage_location = parse_s3_endpoint_url(
             parsed_args.remote_storage_url)[2]
+    elif scheme in ('ftp'):
+        make_fs_access = _create_ftp_fs_access_factory(parsed_args)
+        storage_location = remote_storage_url
     else:
         make_fs_access = _create_s3_fs_access_factory(parsed_args)
         storage_location = remote_storage_url
