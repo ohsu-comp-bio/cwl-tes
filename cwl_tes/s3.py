@@ -1,259 +1,266 @@
-"""AWS S3 support"""
-from __future__ import absolute_import
-
 import fnmatch
-# import ftplib
 import glob
-import boto3
+import io
 import os
-from typing import List, Text  # noqa F401 # pylint: disable=unused-import
+from typing import IO, Any, List
+from urllib.parse import urlparse, urlunparse
 
-import logging
-
-from six.moves import urllib
-# from typing import Tuple, Optional
-# import re
 from cwltool.stdfsaccess import StdFsAccess
-from .ftp import abspath
+from cwltool.loghandler import _logger
 
-from .s3file import S3File
+import minio
 
-log = logging.getLogger("tes-backend")
+
+def is_s3(url):
+    """ Check if an URI refers to an S3 resource.
+
+    S3 resources are represented by URIs of the form s3://bucket/key.
+
+    """
+    return urlparse(url).scheme == 's3'
+
+
+def parse_s3_endpoint_url(url):
+    """ Parse an S3 endpoint URL into its constituent parts.
+
+    S3 endpoint URLs can be either in "path-style", i.e. of the form::
+
+      https://hostname/bucket/key
+
+    or of the form `s3://bucket/key`. In the latter case, it is assumed
+    that we're talking to a bucket hosted on Amazon S3.
+
+    """
+    parse = urlparse(url)
+
+    if parse.scheme == 's3':
+        netloc = "s3.amazonaws.com"
+        insecure = False
+    else:
+        netloc = parse.netloc
+        insecure = parse.scheme == "http"
+        url = "s3:/" + parse.path
+
+    return netloc, insecure, url
+
 
 class S3FsAccess(StdFsAccess):
-    """S3 access with upload."""
-    def __init__(self, basedir, cache=None, insecure=False, endpoint_url=None):  # type: (Text) -> None
-        super(S3FsAccess, self).__init__(basedir)
-        log.info("Initializing S3Access object")
-        self.cache = cache or {}
-        self.uuid = None
-        self.endpoint_url = endpoint_url
+    """ File system abstraction backed by an S3-like bucket (S3, Minio, ...)
 
-    def _parse_url(self, url):
-        parse = urllib.parse.urlparse(url)
-        if parse.scheme in ["s3+http", "s3+https"]:
-            tmp = parse.path.split("/")
-            if len(tmp[0]) == 0:
-                tmp.pop(0)
-            bucket = tmp[0]
-            path = "/".join(tmp[1:])
-            endpoint = parse.scheme.split("+")[1] + "://" + parse.netloc
-            return endpoint, bucket, path
-        else:
-            bucket = parse.netloc
-            path = parse.path
-            if path[0] == '/':
-                path = path[1:]
-            return self.endpoint_url, bucket, path
+    Based on the FtpFsAccess implementation. This implementation uses the
+    Minio client for convenience, but can be used to access resources on
+    Amazon S3 and on a Minio server without any difference.
 
-    def _connect(self, url):
-        '''caches and returns the s3 connection '''
-        parse = urllib.parse.urlparse(url)
-        if parse.scheme in ["s3", "s3+http", "s3+https"]:
-            endpoint, bucketname, path = self._parse_url(url)
-            if (bucketname) in self.cache:
-                return self.cache[(bucketname)]
-            session = boto3.session.Session()
-            self.cache[(bucketname)] = session
-            return session
-        return None
+    Access credentials for the bucket are taken from the environment and should
+    be set via the AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment
+    variables.
 
-    def setUUID(self, uuid):
-        self.uuid = uuid
+    """
 
-    def getUUID(self):
-        return(self.uuid)
+    def __init__(self, basedir, url, insecure=False):  # type: (str) -> None
+        """Perform operations with respect to a base directory."""
 
-    def _abs(self, p):
-        return abspath(p, self.basedir)
+        super().__init__(basedir)
 
-    def glob(self, pattern):
-        if not self.basedir.startswith("s3:"):
-            return super(S3FsAccess, self).glob(pattern)
-        return self._glob(pattern)
+        self._client = minio.Minio(
+            url,
+            access_key=os.environ["AWS_ACCESS_KEY_ID"],
+            secret_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+            secure=not insecure,
+        )
 
-    def _glob0(self, basename, basepath):
-        if basename == '':
-            if self.isdir(basepath):
-                return [basename]
-        else:
-            if self.isfile(self.join(basepath, basename)):
-                return [basename]
-        return []
+    def glob(self, pattern):  # type: (str) -> List[str]
+        """ Find keys in the bucket that match a given pattern.
 
-    def _glob1(self, pattern, basepath=None):
-        try:
-            names = self.listdir(basepath)
-        except Exception as e:
-            return []
-        if pattern[0] != '.':
-            names = filter(lambda x: x[0] != '.', names)
-        return fnmatch.filter(names, pattern)
+        Patterns are of the form::
 
-    def _glob(self, pattern):  # type: (Text) -> List[Text]
-        if pattern.endswith("/."):
-            pattern = pattern[:-1]
-        dirname, basename = pattern.rsplit('/', 1)
+            s3://bucket/some/key/that/*.has/some/magic/in/it
+
+        """
+        _logger.debug("glob() for %s", pattern)
+
+        # Shortcut: we have a pattern without a magic in it. Simply check if
+        # the resource exists, and return early.
         if not glob.has_magic(pattern):
-            if basename:
-                if self.exists(pattern):
-                    return [pattern]
-            else:  # Patterns ending in slash should match only directories
-                if self.isdir(dirname):
-                    return [pattern]
-            return []
-        if not dirname:
-            return self._glob1(basename)
+            # Single path
+            if self.exists(pattern):
+                return [pattern]
+            else:
+                return []
 
-        dirs = self._glob(dirname)
-        if glob.has_magic(basename):
-            glob_in_dir = self._glob1
-        else:
-            glob_in_dir = self._glob0
-        results = []
-        for dirname in dirs:
-            results.extend(glob_in_dir(basename, dirname))
-        return results
+        # We have a magic. Try to isolate a prefix in the path that has no
+        # magic in it, and list keys under that prefix, so that we don't have
+        # to list and filter the whole bucket, which may be huge.
+        bucket, path = _parse_bucket_url(pattern)
+        prefix, _ = _split_on_magic(path)
 
-    def open(self, fn, mode):
-        if not fn.startswith("s3:"):
-            return super(S3FsAccess, self).open(fn, mode)
-        if 'r' in mode:
-            endpoint, bucket, path = self._parse_url(fn)
-            s3 = boto3.resource("s3", endpoint_url=endpoint)
-            s3_object = s3.Object(bucket_name=bucket, key=path)
-            return S3File(s3_object)
-        if 'w' in mode:
-            # check if file exists
-            if self.exists(fn):
-                raise Exception(
-                    'Cannot override or append s3 objects. {} exists.'.
-                    format(fn))
-            bucket, path = self._parse_url(fn)
-            s3 = boto3.resource("s3")
-            s3_object = s3.Object(bucket_name=bucket, key=path)
-            return S3File(s3_object)
-        raise Exception('{} mode s3 not implemented'.format(mode))
+        # List objects under prefix.
+        objs = self._client.list_objects(bucket, prefix=prefix, recursive=True)
+        keys = [obj.object_name for obj in objs]
 
-    def exists(self, fn):  # type: (Text) -> bool
-        s3session = self._connect(fn)
-        if s3session:
-            return self.isfile(fn) or self.isdir(fn)
-        return super(S3FsAccess, self).exists(fn)
+        # Filter against given pattern
+        matching_keys = fnmatch.filter(keys, path)
+        return [_make_bucket_url(bucket, path) for path in matching_keys]
 
-    def isfile(self, fn):  # type: (Text) -> bool
-        s3session = self._connect(fn)
-        if s3session:
-            try:
-                sz = self.size(fn)
-                if sz is None:
-                    return False
-                return True
-            except Exception as e:
-                return False
-        return super(S3FsAccess, self).isfile(fn)
+    def open(self, fn, mode):  # type: (str, str) -> IO[Any]
+        """ Open a bucket resource for access.
+        """
+        _logger.debug("open() for %s with mode %s", fn, mode)
 
-    def isdir(self, fn):
-        '''
-        Check if a bucket resource exists and is a directory.
+        if not is_s3(fn):
+            return super().open(fn, mode)
+
+        bucket, relpath = _parse_bucket_url(fn)
+        resp = self._client.get_object(bucket, relpath)
+        return resp
+
+    def exists(self, fn):  # type: (str) -> bool
+        """ Check whether a bucket resource exists.
+        """
+        _logger.debug("exists() for %s", fn)
+
+        if not is_s3(fn):
+            return super().exists(fn)
+
+        bucket, relpath = _parse_bucket_url(fn)
+        if not relpath:
+            return self._client.bucket_exists(bucket)
+
+        objs = self._client.list_objects(bucket, prefix=relpath)
+        paths = [obj.object_name for obj in objs]
+
+        return relpath in paths or relpath + '/' in paths
+
+    def size(self, fn):  # type: (str) -> int
+        """ Return the size of a bucket resource (in bytes).
+        """
+        _logger.debug("size() for %s", fn)
+
+        if not is_s3(fn):
+            return super().size(fn)
+
+        bucket, relpath = _parse_bucket_url(fn)
+        obj = self._client.stat_object(bucket, relpath)
+        return obj.size
+
+    def isfile(self, fn):  # type: (str) -> bool
+        """ Check if a bucket resource exists and is a file.
+
+        Note: S3 does not really distinguish between files and directory.
+        Consequently, this function (and `isdir`) merely check that the
+        given object exists.
+
+        """
+        _logger.debug("isfile() for %s", fn)
+
+        if not is_s3(fn):
+            return super().isfile(fn)
+
+        return self.exists(fn)
+
+    def isdir(self, fn):  # type: (str) -> bool
+        """ Check if a bucket resource exists and is a directory.
+
         Note: S3 does not really distinguish between files and directory.
         Consequently, this function (and `isfile`) merely check that the
         given object exists.
-        '''
-        s3session = self._connect(fn)
-        if s3session:
-            endpoint, bucketname, path = self._parse_url(fn)
-            s3bucket = s3session.client('s3', endpoint_url=endpoint)
-            if path[0] == '/':
-                path = path[1:]
-            if path[-1] == '/':
-                path = path[:-1]
-            resp = s3bucket.list_objects_v2(
-                        Bucket=bucketname,
-                        Prefix=path)
-            count = 0
-            print("IsDir ", fn, resp)
-            if "Contents" in resp:
-                for elem in resp["Contents"]:
-                    if elem["Key"].startswith(path + "/"):
-                        count += 1
-            return count > 0
-        return super(S3FsAccess, self).isdir(fn)
+
+        """
+        _logger.debug("isdir() for %s", fn)
+
+        if not is_s3(fn):
+            return super().isdir(fn)
+
+        return self.exists(fn)
 
     def mkdir(self, url, recursive=True):
-        """Make the directory specified in the URL.
-           For s3 it just creates an ojbect that ends with /"""
-        s3session = self._connect(url)
-        endpoint, bucketname, path = self._parse_url(url)
-        if path[0] == '/':
-            path = path[1:]
-        if path[-1] != '/':
-            path = path + '/'
-        try:
-            s3bucket = s3session.client('s3', endpoint_url=endpoint)
-            resp = s3bucket.put_object(Bucket=bucketname, Key=path)
-            return True
-        except Exception as e:
-            return False
-        return None
+        """ Make a directory inside the bucket.
 
-    def listdir(self, fn):  # type: (Text) -> List[Text]
-        s3session = self._connect(fn)
-        if s3session:
-            endpoint, bucketname, path = self._parse_url(fn)
-            s3bucket = s3session.client('s3', endpoint_url=endpoint)
-            if path[0] == '/':
-                path = path[1:]
-            if path[-1] != '/':
-                path = path+'/'
-            return ["s3://{}/{}".format(bucketname, x['Key'])
-                    for x in s3bucket.list_objects_v2(
-                        Bucket=bucketname,
-                        Prefix=path)['Contents']]
-        return super(S3FsAccess, self).listdir(fn)
+        Note: an S3 directory is simply an object whose name ends in a
+        forward slash.
 
-    def join(self, path, *paths):
-        if path.startswith('s3:'):
-            result = path
-            for extra_path in paths:
-                if extra_path.startswith('s3:/'):
-                    result = extra_path
-                else:
-                    if result[-1] == '/':
-                        result = result[:-1]
-                    result = result + "/" + extra_path
-            return result
-        return super(S3FsAccess, self).join(path, *paths)
+        """
+        _logger.debug("mkdir() for %s", url)
 
-    def realpath(self, path):
-        if path.startswith('s3:'):
-            return path
-        return os.path.realpath(path)
+        bucket, relpath = _parse_bucket_url(url)
+        if not relpath:
+            return
 
-    def size(self, fn):
-        s3session = self._connect(fn)
-        if s3session:
-            endpoint, bucketname, path = self._parse_url(fn)
-            try:
-                s3bucket = s3session.client('s3', endpoint_url=endpoint)
-                obj = s3bucket.head_object(Bucket=bucketname, Key=path)
-                size = obj['ContentLength']
-                print("Size", fn, obj)
-                return size
-            except Exception as e:
-                return None
-        return super(S3FsAccess, self).size(fn)
+        if not relpath.endswith('/'):
+            relpath += '/'
 
-    def upload(self, file_handle, url):
-        """s3 specific method to upload a file to the given URL."""
-        s3session = self._connect(url)
-        #try:
-        endpoint, bucketname, path = self._parse_url(url)
-        s3bucket = s3session.client('s3', endpoint_url=endpoint)
-        s3bucket.upload_fileobj(
-            Fileobj=file_handle,
-            Bucket=bucketname,
-            Key=path)
-        #except Exception as e:
-        #    raise Exception("Cannot store file {} to {}.{}".
-        #                    format(file_handle, path, e))
+        self._client.put_object(bucket, relpath, io.BytesIO(), 0)
+
+    def listdir(self, fn):  # type: (str) -> List[str]
+        """ List all objects in a given bucket (non-recursively).
+        """
+        _logger.debug("listdir() for %s", fn)
+
+        bucket, relpath = _parse_bucket_url(fn)
+
+        prefix = relpath or None
+        objs = self._client.list_objects(bucket, prefix=prefix)
+
+        return [
+            _make_bucket_url(obj.bucket_name, obj.object_name) for obj in objs
+        ]
+
+    def join(self, path, *paths):  # type: (str, *str) -> str
+        """ Join bucket paths.
+        """
+        _logger.debug("join() for %s, %s", path, ', '.join(paths))
+
+        if not is_s3(path):
+            return super().join(path, *paths)
+
+        return path + '/' + '/'.join(paths)
+
+    def realpath(self, path):  # type: (str) -> str
+        """ Return the real path for a bucket resource.
+
+        This is a no-op.
+
+        """
+        _logger.debug("realpath() for %s", path)
+
+        if not is_s3(path):
+            return super().realpath(path)
+
+        return path
+
+    def upload(self, handle, fn):
+        """ Upload a resource to the bucket.
+
+        The resource is identified by an open file handle.
+
+        """
+        _logger.debug("upload() for %s", fn)
+
+        bucket, relpath = _parse_bucket_url(fn)
+
+        nbytes = os.fstat(handle.fileno()).st_size
+        self._client.put_object(bucket, relpath, handle, nbytes)
+
+
+def _parse_bucket_url(url):
+    """Parses a bucket URI of the form s3://bucket/path/into/bucket
+    """
+    parse = urlparse(url)
+    return parse.netloc, parse.path[1:]
+
+
+def _make_bucket_url(bucket, path):
+    return urlunparse(("s3", bucket, path, None, None, None))
+
+
+def _split_on_magic(path):
+    """ Split path into two parts, so that the second part starts with a glob.
+
+    If the path does not contain a magic, the second part is empty.
+
+    """
+    parts = path.split('/')
+    for i, part in enumerate(parts):
+        if glob.has_magic(part):
+            break
+    return '/'.join(parts[:i]), '/'.join(parts[i:])

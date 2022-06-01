@@ -7,11 +7,11 @@ import functools
 import signal
 import sys
 import logging
-import ftplib
 import jwt
 import uuid
 from typing import MutableMapping, MutableSequence
 from typing_extensions import Text
+from urllib.parse import urlparse
 
 import pkg_resources
 from six.moves import urllib
@@ -32,8 +32,9 @@ from cwltool.process import Process
 
 from .tes import make_tes_tool, TESPathMapper
 from .__init__ import __version__
+
 from .ftp import FtpFsAccess
-from .s3 import S3FsAccess
+from .s3 import S3FsAccess, parse_s3_endpoint_url
 from .gs import GSFsAccess
 from cwltool.stdfsaccess import StdFsAccess
 
@@ -61,7 +62,7 @@ def versionstring():
 def fs_upload(base_url, fs_access, cwl_obj):
     # type: (Text, FtpFsAccess, Dict[Text, Any]) -> None
     """
-    Upload a File or Directory to the given file URL;
+    Upload a File or Directory to the given backend URL (FTP or S3);
 
     Update the location URL to match.
     """
@@ -79,7 +80,7 @@ def fs_upload(base_url, fs_access, cwl_obj):
         raise ValueError("Passed a file but Class is not File")
     try:
         fs_access.mkdir(base_url)
-    except ftplib.all_errors:
+    except Exception:
         pass
     if not fs_access.isdir(base_url):
         raise Exception(
@@ -114,6 +115,35 @@ def is_s3_url(b):
 def is_gs_url(b):
     return b.startswith("gs:")
 
+def _create_ftp_fs_access_factory(parsed_args):
+    """ Return a callable that creates an FtpFsAccess instance.
+    """
+    ftp_cache = {}
+
+    class CachingFtpFsAccess(FtpFsAccess):
+        """Ensures that the FTP connection cache is shared."""
+        def __init__(self, basedir, insecure=False):
+            super(CachingFtpFsAccess, self).__init__(
+                basedir, ftp_cache, insecure=insecure)
+
+    factory = functools.partial(
+        CachingFtpFsAccess, insecure=parsed_args.insecure
+    )
+    return factory
+
+
+def _create_s3_fs_access_factory(parsed_args):
+    """ Return a callable that creates an S3FsAccess instance.
+    """
+    endpoint, insecure, bucket = parse_s3_endpoint_url(
+        parsed_args.remote_storage_url)
+
+    factory = functools.partial(
+        S3FsAccess, url=endpoint, insecure=insecure
+    )
+    return factory
+
+
 def main(args=None):
     """Main entrypoint for cwl-tes."""
     if args is None:
@@ -134,11 +164,15 @@ def main(args=None):
 
     if parsed_args.token:
         try:
+            validation_options = {}
+            validation_options['verify_aud'] = False
             jwt.decode(
-                parsed_args.token,
-                parsed_args.token_public_key.encode('utf-8')
+                jwt=parsed_args.token,
+                key=parsed_args.token_public_key
+                .encode('utf-8')
                 .decode('unicode_escape'),
-                algorithms=['RS256']
+                algorithms=['RS256'],
+                options=validation_options,
             )
         except Exception:
             raise Exception('Token is not valid')
@@ -162,53 +196,32 @@ def main(args=None):
         sys.exit(1)
     signal.signal(signal.SIGINT, signal_handler)
 
-    ftp_cache = {}
-    str_uuid = str(uuid.uuid4())
-    class CachingFtpFsAccess(FtpFsAccess):
-        """Ensures that the FTP connection cache is shared."""
-        def __init__(self, basedir, insecure=False):
-            super(CachingFtpFsAccess, self).__init__(
-                basedir, ftp_cache, insecure=insecure)
+    remote_storage_url = parsed_args.remote_storage_url
+    scheme = urlparse(remote_storage_url).scheme
+    if scheme in ('http', 'https'):
+        make_fs_access = _create_s3_fs_access_factory(parsed_args)
+        storage_location = parse_s3_endpoint_url(
+            parsed_args.remote_storage_url)[2]
+    elif scheme in ('ftp'):
+        make_fs_access = _create_ftp_fs_access_factory(parsed_args)
+        storage_location = remote_storage_url
+    else:
+        make_fs_access = _create_s3_fs_access_factory(parsed_args)
+        storage_location = remote_storage_url
 
-    class CachingS3FsAccess(S3FsAccess):
-        """ created only for homogeneity with the FTP counterpart.
-            it just returns an instance of S3FsAccess"""
-        def __init__(self, basedir, insecure=False, endpoint_url=None):
-            super(CachingS3FsAccess, self).__init__(basedir, endpoint_url=endpoint_url)
+    fs_access = make_fs_access(os.curdir)
 
-    # keep as default the original behaviour (ftp)
-    fs_access = StdFsAccess(os.curdir)
-    # switch to s3 if the remote_storage_url is on s3
-    if parsed_args.remote_storage_url:
-        if is_ftp_url(parsed_args.remote_storage_url):
-            fs_access = CachingFtpFsAccess(os.curdir, insecure=parsed_args.insecure)
-        if is_s3_url(parsed_args.remote_storage_url):
-            fs_access = CachingS3FsAccess(os.curdir, endpoint_url=parsed_args.endpoint_url)
-        if is_gs_url(parsed_args.remote_storage_url):
-            fs_access = CachingGSFsAccess(os.curdir)
-    if parsed_args.remote_storage_url:
-        parsed_args.remote_storage_url = fs_access.join(
-            parsed_args.remote_storage_url, str_uuid)
+    if remote_storage_url:
+        data_url = fs_access.join(storage_location, str(uuid.uuid4()))
+        parsed_args.remote_storage_url = data_url
+
     loading_context = cwltool.main.LoadingContext(vars(parsed_args))
     loading_context.construct_tool_object = functools.partial(
         make_tes_tool, url=parsed_args.tes,
         remote_storage_url=parsed_args.remote_storage_url,
         token=parsed_args.token)
     runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
-
-    if parsed_args.remote_storage_url:
-        if is_s3_url(parsed_args.remote_storage_url):
-            runtime_context.make_fs_access = functools.partial(
-            CachingS3FsAccess, insecure=parsed_args.insecure, endpoint_url=parsed_args.endpoint_url)
-        elif is_ftp_url(parsed_args.remote_storage_url):
-            runtime_context.make_fs_access = functools.partial(
-            CachingFtpFsAccess, insecure=parsed_args.insecure)
-        elif is_gs_url(parsed_args.remote_storage_url):
-            runtime_context.make_fs_access = functools.partial(
-            CachingGSFsAccess)
-        else:
-            raise Exception("Unknown Schema")
-
+    runtime_context.make_fs_access = make_fs_access
     runtime_context.path_mapper = functools.partial(
         TESPathMapper, fs_access=fs_access)
     job_executor = MultithreadedJobExecutor() if parsed_args.parallel \
@@ -219,7 +232,6 @@ def main(args=None):
         loading_context=loading_context,
         remote_storage_url=parsed_args.remote_storage_url,
         fs_access=fs_access)
-    runtime_context.str_uuid = str_uuid
     return cwltool.main.main(
         args=parsed_args,
         executor=executor,
@@ -257,7 +269,7 @@ def tes_execute(process,           # type: Process
         loading_context.do_validate = False
         process = loading_context.construct_tool_object(
             process.doc_loader.idx[process.tool["id"]], loading_context)
-        job_order = upload_job_order(
+        job_order = upload_job_order_fs(
             process, job_order, remote_storage_url, fs_access)
 
     if not job_executor:
@@ -276,16 +288,16 @@ def upload_workflow_deps(process, remote_storage_url, fs_access):
 
     def upload_tool_deps(deptool):
         if "id" in deptool:
-            upload_dependencies(document_loader, deptool, deptool["id"],
-                                    True, remote_storage_url, fs_access)
+            upload_dependencies_fs(document_loader, deptool, deptool["id"],
+                                   True, remote_storage_url, fs_access)
             document_loader.idx[deptool["id"]] = deptool
     process.visit(upload_tool_deps)
 
 
-def upload_dependencies(document_loader, workflowobj, uri, loadref_run,
-                            remote_storage_url, fs_access):
+def upload_dependencies_fs(document_loader, workflowobj, uri, loadref_run,
+                           remote_storage_url, fs_access):
     """
-    Upload the dependencies of the workflowobj document to an storage location.
+    Upload the dependencies of the workflowobj document to an FTP/S3 location.
 
     Does an in-place update of references in "workflowobj".
     Use scandeps to find $import, $include, $schemas, run, File and Directory
@@ -419,7 +431,7 @@ def set_secondary(typedef, fileobj, discovered):
             set_secondary(typedef, entry, discovered)
 
 
-def upload_job_order(process, job_order, remote_storage_url, fs_access):
+def upload_job_order_fs(process, job_order, remote_storage_url, fs_access):
     """
     Upload local files referenced in the input object and return updated input
     object with 'location' updated to new URIs.
@@ -428,9 +440,9 @@ def upload_job_order(process, job_order, remote_storage_url, fs_access):
     https://github.com/curoverse/arvados/blob/2b0b06579199967eca3d44d955ad64195d2db3c3/sdk/cwl/arvados_cwl/runner.py#L266
     """
     discover_secondary_files(process.tool["inputs"], job_order)
-    upload_dependencies(process.doc_loader, job_order,
-                            job_order.get("id", "#"), False,
-                            remote_storage_url, fs_access)
+    upload_dependencies_fs(process.doc_loader, job_order,
+                           job_order.get("id", "#"), False,
+                           remote_storage_url, fs_access)
     if "id" in job_order:
         del job_order["id"]
     # Need to filter this out, gets added by cwltool when providing

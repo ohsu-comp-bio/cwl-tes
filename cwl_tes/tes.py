@@ -91,57 +91,10 @@ class TESPathMapper(PathMapper):
         super(TESPathMapper, self).__init__(reference_files, basedir, stagedir,
                                             separateDirs)
 
-    @property
-    def getPathMapping(self):
-        return self._pathmap
-
-    def mapper(self, src: str) -> MapperEnt:
-
-        # find who called me:
-        st = inspect.stack()
-        callers = [st[i][3] for i, k in enumerate(st)]
-        if "#" in src:
-            i = src.index("#")
-            p = self._pathmap[src[:i]]
-            return MapperEnt(p.resolved, p.target + src[i:], p.type, p.staged)
-        pm = self._pathmap[src]
-
-        if 'relocateOutputs' in callers:
-            # leave this line to print out the URI of the file
-            # and its resolved location
-            # this output will be used at the end to map the
-            # output files back to their URIs
-            print("Mapper: {} ".format(
-                json.dumps({"resolved": pm.resolved,
-                            "target": pm.target,
-                            "target_uri": file_uri(pm.target)
-                            })
-                )
-            )
-
-        # at this point the _pathmap for an s3 object contains
-        # resolved: s3 URI
-        # target: location on local fs
-        # if we don't want to get the local file
-        # (because we let the objects remain on s3) we
-        # will replace the target with resolved
-        return pm
-
-    def _download_remote_file(self, path):
-        """ returns the file name of a local file
-            with the contents of the remote file.
-            If the file is an remote object we
-            don't need to download it, just return the URI"""
-        url = urllib.parse.urlparse(path)
-        if url.scheme in ['s3', 'ftp', 's3+http', 's3+https']:
-            return path
-        elif url.scheme == "" or url.scheme == 'file':
-            with NamedTemporaryFile(mode='wb', delete=False) as dest:
-                with self.fs_access.open(path, mode="rb") as handle:
-                    chunk = "start"
-                    while chunk:
-                        chunk = handle.read(16384)
-                        dest.write(chunk)
+    def _download_streaming_file(self, path):
+        with NamedTemporaryFile(mode='wb', delete=False) as dest:
+            with self.fs_access.open(path, mode="rb") as handle:
+                shutil.copyfileobj(handle, dest)
             return dest.name
         else:
             raise Exception("Unknown scheme for file {}".format(path))
@@ -179,7 +132,7 @@ class TESPathMapper(PathMapper):
                             'http', 'https']:
                         deref = downloadHttpFile(path)
                     elif urllib.parse.urlsplit(deref).scheme in ['ftp', 's3', 's3+http', 's3+https']:
-                        deref = self._download_remote_file(path)
+                        deref = self._download_streaming_file(path)
                     else:
                         log.warning("unprocessed File %s", obj)
                         # Dereference symbolic links
