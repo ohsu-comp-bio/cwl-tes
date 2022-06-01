@@ -35,6 +35,8 @@ from .__init__ import __version__
 
 from .ftp import FtpFsAccess
 from .s3 import S3FsAccess, parse_s3_endpoint_url
+from .gs import GSFsAccess
+from cwltool.stdfsaccess import StdFsAccess
 
 log = logging.getLogger("tes-backend")
 log.setLevel(logging.INFO)
@@ -87,7 +89,7 @@ def fs_upload(base_url, fs_access, cwl_obj):
     cwl_obj.pop("path", None)
     if is_dir:
         if fs_access.isdir(fs_access.join(base_url, basename)):
-            log.warning("FTP upload, Directory %s already exists", basename)
+            log.warning("FS upload, Directory %s already exists", basename)
         else:
             for root, _subdirs, files in os.walk(path, followlinks=True):
                 root_path = base_url + '/' + root[len(dirname):]
@@ -104,6 +106,14 @@ def fs_upload(base_url, fs_access, cwl_obj):
             with open(path, mode="rb") as source:
                 fs_access.upload(source, cwl_obj["location"])
 
+def is_ftp_url(b):
+    return b.startswith("ftp:")
+
+def is_s3_url(b):
+    return b.startswith("s3:") or b.startswith("s3+http:") or b.startswith("s3+https:")
+
+def is_gs_url(b):
+    return b.startswith("gs:")
 
 def _create_ftp_fs_access_factory(parsed_args):
     """ Return a callable that creates an FtpFsAccess instance.
@@ -214,6 +224,7 @@ def main(args=None):
     runtime_context.make_fs_access = make_fs_access
     runtime_context.path_mapper = functools.partial(
         TESPathMapper, fs_access=fs_access)
+    runtime_context.str_uuid = str(uuid.uuid4())
     job_executor = MultithreadedJobExecutor() if parsed_args.parallel \
         else SingleJobExecutor()
     job_executor.max_ram = job_executor.max_cores = float("inf")
@@ -451,6 +462,7 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
                         type=Text, default=os.path.abspath('.'),
                         help="Output directory, default current directory")
     parser.add_argument("--remote-storage-url", type=str)
+    parser.add_argument("--endpoint-url", type=str)
     parser.add_argument("--insecure", action="store_true",
                         help=("Connect securely to FTP server (ignored when "
                               "--remote-storage-url is not set)"))
@@ -705,7 +717,7 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
     exgroup.add_argument(
         "--compute-checksum",
         action="store_true",
-        default=True,
+        default=False,
         help="Compute checksum of contents while collecting outputs",
         dest="compute_checksum")
     exgroup.add_argument(

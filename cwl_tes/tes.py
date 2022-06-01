@@ -6,10 +6,13 @@ import random
 import time
 import threading
 import stat
+import re
+import json
 from builtins import str
 import shutil
 import functools
 import uuid
+import inspect
 from tempfile import NamedTemporaryFile
 from pprint import pformat
 from typing import (Any, Callable, Dict, List, MutableMapping, MutableSequence,
@@ -29,6 +32,8 @@ from cwltool.errors import WorkflowException, UnsupportedRequirement
 from cwltool.expression import JSON
 from cwltool.job import JobBase
 from cwltool.stdfsaccess import StdFsAccess
+from cwl_tes.s3 import S3FsAccess
+
 from cwltool.pathmapper import (PathMapper, uri_file_path, MapperEnt,
                                 downloadHttpFile)
 from cwltool.utils import onWindows, convert_pathsep_to_unix
@@ -124,7 +129,7 @@ class TESPathMapper(PathMapper):
                     if urllib.parse.urlsplit(deref).scheme in [
                             'http', 'https']:
                         deref = downloadHttpFile(path)
-                    elif urllib.parse.urlsplit(deref).scheme in ('ftp', 's3'):
+                    elif urllib.parse.urlsplit(deref).scheme in ['ftp', 's3', 's3+http', 's3+https']:
                         deref = self._download_streaming_file(path)
                     else:
                         log.warning("unprocessed File %s", obj)
@@ -157,7 +162,8 @@ class TESTask(JobBase):
                  url,
                  spec,
                  remote_storage_url=None,
-                 token=None):
+                 token=None,
+                 uuid=None):
         super(TESTask, self).__init__(builder, joborder, make_path_mapper,
                                       requirements, hints, name)
         self.runtime_context = runtime_context
@@ -173,11 +179,23 @@ class TESTask(JobBase):
         self.poll_interval = 1
         self.poll_retries = 10
         self.client = tes.HTTPClient(url, token=token)
-        self.remote_storage_url = remote_storage_url
+        self.uuid = runtime_context.str_uuid
+
+        # the remot storage url has the format <TES output path >/output_<uuid>
+        if remote_storage_url.startswith("s3://"):
+            self.remote_storage_url = os.path.dirname(remote_storage_url) \
+                + "/" + self.name
+        else:
+            self.remote_storage_url = remote_storage_url
+        # if the remote storage is s3 we don't want any local directory,
+        # since it is not available to the AWS instances.
+        if urllib.parse.urlparse(self.remote_storage_url).scheme == "s3":
+            self.fs_access = S3FsAccess(self.basedir, self.remote_storage_url)
+            self.basedir = self.remote_storage_url
         self.token = token
 
     def get_container(self):
-        default = self.runtime_context.default_container or "python:2.7"
+        default = self.runtime_context.default_container or "python:3.9"
         container = default
 
         docker_req, _ = self.get_requirement("DockerRequirement")
@@ -234,14 +252,23 @@ class TESTask(JobBase):
 
     def parse_listing(self, listing, inputs):
         for item in listing:
-
-            if "writable" in item:
+            if "writable" in item and item['writable'] is True:
                 raise UnsupportedRequirement(
                     "The TES spec does not allow for writable inputs"
                 )
 
             if "contents" in item:
                 loc = self.fs_access.join(self.tmpdir, item["basename"])
+                # need to copy the temporary file to s3
+                if (urllib.
+                        parse.
+                        urlparse(self.remote_storage_url).
+                        scheme) == 's3':
+                    loc = self.fs_access.join(
+                        self.remote_storage_url,
+                        item['basename'])
+
+                log.critical(" Location is set to {}". format(loc))
                 with self.fs_access.open(loc, "wb") as gen:
                     gen.write(item["contents"])
             else:
@@ -340,6 +367,22 @@ class TESTask(JobBase):
                 )
             )
 
+        def get_job_id(path):
+            rv = None
+            try:
+                m = re.search(self.uuid+"/(.*)", path)
+                rv = m.group(1)
+            except Exception:
+                rv = os.path.basename(path)
+            try:
+                if rv.startswith('/'):
+                    rv = rv[1:]
+                if rv.endswith('/'):
+                    rv = rv[:-1]
+            except Exception:
+                pass
+            return(rv)
+
         create_body = tes.Task(
             name=self.name,
             description=self.spec.get("doc", ""),
@@ -361,9 +404,11 @@ class TESTask(JobBase):
                 ram_gb=ram,
                 disk_gb=disk
             ),
-            tags={"CWLDocumentId": self.spec.get("id")}
+            tags={"CWLDocumentId": self.spec.get("id"),
+                  "tool_name": self.name,
+                  "job_id": get_job_id(self.remote_storage_url),
+                  "workflow_id": self.uuid}
         )
-
         return create_body
 
     def run(self,

@@ -4,8 +4,8 @@ on: [ pull_request ]
 
 jobs:
 
-  conformance:
-    name: Conformance
+  conformance-ftp:
+    name: Conformance FTP
     runs-on: ubuntu-latest
     steps:
     - name: Check out code
@@ -22,3 +22,26 @@ jobs:
       run: make funnel-server
     - name: Start conformance test
       run: make ftp-conformance
+
+  conformance-s3:
+    name: Conformance S3
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v2
+      with:
+        submodules: recursive
+    - name: Python Dependencies for Conformance
+      run: pip install -r requirements.txt
+    - name: Get funnel
+      run: make funnel
+    - name: Start MINIO server
+      run: make minio-server
+    - name: Start funnel server
+      run: make funnel-server
+    - name: Start conformance test
+      run: make s3-conformance
+      env:
+        AWS_ACCESS_KEY_ID: minio
+        AWS_SECRET_ACCESS_KEY: minio
+
