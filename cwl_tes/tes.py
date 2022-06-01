@@ -187,15 +187,15 @@ class TESTask(JobBase):
                 + "/" + self.name
         else:
             self.remote_storage_url = remote_storage_url
-        # if the remote storage is s3 w edon't want any local directory,
+        # if the remote storage is s3 we don't want any local directory,
         # since it is not available to the AWS instances.
         if urllib.parse.urlparse(self.remote_storage_url).scheme == "s3":
-            self.fs_access = S3FsAccess(self.basedir)
+            self.fs_access = S3FsAccess(self.basedir, self.remote_storage_url)
             self.basedir = self.remote_storage_url
         self.token = token
 
     def get_container(self):
-        default = self.runtime_context.default_container or "python:2.7"
+        default = self.runtime_context.default_container or "python:3.9"
         container = default
 
         docker_req, _ = self.get_requirement("DockerRequirement")
