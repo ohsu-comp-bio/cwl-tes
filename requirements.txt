@@ -17,6 +17,7 @@ isodate==0.6.1
 junit-xml==1.9
 lockfile==0.12.2
 lxml==4.8.0
+minio==7.1.8
 mistune==0.8.4
 msgpack==1.0.3
 mypy-extensions==0.4.3
