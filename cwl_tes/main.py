@@ -224,6 +224,7 @@ def main(args=None):
     runtime_context.make_fs_access = make_fs_access
     runtime_context.path_mapper = functools.partial(
         TESPathMapper, fs_access=fs_access)
+    runtime_context.str_uuid = str(uuid.uuid4())
     job_executor = MultithreadedJobExecutor() if parsed_args.parallel \
         else SingleJobExecutor()
     job_executor.max_ram = job_executor.max_cores = float("inf")
