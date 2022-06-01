@@ -41,4 +41,7 @@ jobs:
       run: make funnel-server
     - name: Start conformance test
       run: make s3-conformance
+      env:
+        AWS_ACCESS_KEY_ID: minio
+        AWS_SECRET_ACCESS_KEY: minio
 
