@@ -175,13 +175,18 @@ class TESTask(JobBase):
         self.token = token
 
     def _required_env(self) -> Dict[str, str]:
-        # spec currently says "HOME must be set to the designated output
-        # directory." but spec might change to designated temp directory.
-        # runtime.append("--env=HOME=/tmp")
-        return {
-            "TMPDIR": self.basedir,
-            "HOME": self.basedir,
-            }
+        env = self.environment
+        vars_to_preserve = self.runtime_context.preserve_environment
+        if self.runtime_context.preserve_entire_environment:
+            vars_to_preserve = os.environ
+        if vars_to_preserve is not None:
+            for key, value in os.environ.items():
+                if key in vars_to_preserve and key not in env:
+                    # On Windows, subprocess env can't handle unicode.
+                    env[key] = str(value)
+        env["HOME"] = str(self.builder.outdir)
+        env["TMPDIR"] = str(self.builder.tmpdir)
+        return env
 
     def get_container(self):
         default = self.runtime_context.default_container or "python:2.7"
