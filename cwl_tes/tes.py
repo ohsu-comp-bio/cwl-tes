@@ -96,8 +96,6 @@ class TESPathMapper(PathMapper):
             with self.fs_access.open(path, mode="rb") as handle:
                 shutil.copyfileobj(handle, dest)
             return dest.name
-        else:
-            raise Exception("Unknown scheme for file {}".format(path))
 
     def visit(self, obj, stagedir, basedir, copy=False, staged=False):
         tgt = convert_pathsep_to_unix(
