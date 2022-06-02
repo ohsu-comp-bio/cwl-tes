@@ -187,7 +187,7 @@ def main(args=None):
     signal.signal(signal.SIGINT, signal_handler)
 
     remote_storage_url = parsed_args.remote_storage_url
-    scheme = urlparse(remote_storage_url).scheme
+    scheme = str(urlparse(remote_storage_url).scheme)
     if scheme in ('http', 'https'):
         make_fs_access = _create_s3_fs_access_factory(parsed_args)
         storage_location = parse_s3_endpoint_url(
