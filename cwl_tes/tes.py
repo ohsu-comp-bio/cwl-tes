@@ -122,10 +122,8 @@ class TESPathMapper(PathMapper):
                                 log.isEnabledFor(logging.DEBUG)):
                     deref = abpath
                     prefix= urllib.parse.urlsplit(deref).scheme
-                    log.warning(prefix)
-                    log.warning(abpath)
-                    if prefix in [
-                            'http', 'https']:
+
+                    if prefix in ['http', 'https']:
                         deref = downloadHttpFile(abpath)
                     elif prefix in ('ftp', 's3'):
                         deref = self._download_streaming_file(abpath)
