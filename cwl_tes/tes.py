@@ -111,10 +111,8 @@ class TESPathMapper(PathMapper):
                 obj.get("listing", []), tgt, basedir, copy=copy, staged=staged)
         elif obj["class"] == "File":
             path = obj["location"]
-            log.warning(path)
-            abpath = abspath(path, basedir)
-            log.warning(abpath)
-            
+            abpath=urllib.parse.unquote(path.replace('file://',''))
+
             if "contents" in obj and obj["location"].startswith("_:"):
                 self._pathmap[obj["location"]] = MapperEnt(
                     obj["contents"], tgt, "CreateFile", staged)
@@ -122,7 +120,7 @@ class TESPathMapper(PathMapper):
 
                 with SourceLine(obj, "location", validate.ValidationException,
                                 log.isEnabledFor(logging.DEBUG)):
-                    deref = urllib.parse.unquote(abpath)
+                    deref = abpath
                     
                     if urllib.parse.urlsplit(deref).scheme in [
                             'http', 'https']:
