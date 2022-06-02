@@ -26,12 +26,12 @@ from cwltool.builder import Builder
 from cwltool.command_line_tool import CommandLineTool
 from cwltool.context import RuntimeContext
 from cwltool.errors import WorkflowException, UnsupportedRequirement
-from cwltool.expression import JSON
+# from cwltool.expression import JSON
+# from cwltool.utils import JSONType
 from cwltool.job import JobBase
 from cwltool.stdfsaccess import StdFsAccess
 from cwltool.pathmapper import (PathMapper, uri_file_path, MapperEnt,
                                 downloadHttpFile)
-from cwltool.utils import onWindows, convert_pathsep_to_unix
 from cwltool.workflow import default_make_tool
 
 from .ftp import abspath
@@ -77,7 +77,6 @@ class TESCommandLineTool(CommandLineTool):
                                  remote_storage_url=remote_storage_url,
                                  token=self.token)
 
-
 class TESPathMapper(PathMapper):
 
     def __init__(self, reference_files, basedir, stagedir, separateDirs=True,
@@ -93,8 +92,7 @@ class TESPathMapper(PathMapper):
             return dest.name
 
     def visit(self, obj, stagedir, basedir, copy=False, staged=False):
-        tgt = convert_pathsep_to_unix(
-            os.path.join(stagedir, obj["basename"]))
+        tgt = os.path.join(stagedir, obj["basename"])
         if obj["location"] in self._pathmap:
             return
         if obj["class"] == "Directory":
@@ -113,19 +111,22 @@ class TESPathMapper(PathMapper):
                 obj.get("listing", []), tgt, basedir, copy=copy, staged=staged)
         elif obj["class"] == "File":
             path = obj["location"]
-            abpath = abspath(path, basedir)
+            abpath=urllib.parse.unquote(path.replace('file://',''))
+
             if "contents" in obj and obj["location"].startswith("_:"):
                 self._pathmap[obj["location"]] = MapperEnt(
                     obj["contents"], tgt, "CreateFile", staged)
             else:
+
                 with SourceLine(obj, "location", validate.ValidationException,
                                 log.isEnabledFor(logging.DEBUG)):
                     deref = abpath
-                    if urllib.parse.urlsplit(deref).scheme in [
-                            'http', 'https']:
-                        deref = downloadHttpFile(path)
-                    elif urllib.parse.urlsplit(deref).scheme in ('ftp', 's3'):
-                        deref = self._download_streaming_file(path)
+                    prefix= urllib.parse.urlsplit(deref).scheme
+
+                    if prefix in ['http', 'https']:
+                        deref = downloadHttpFile(abpath)
+                    elif prefix in ('ftp', 's3'):
+                        deref = self._download_streaming_file(abpath)
                     else:
                         log.warning("unprocessed File %s", obj)
                         # Dereference symbolic links
@@ -175,6 +176,20 @@ class TESTask(JobBase):
         self.client = tes.HTTPClient(url, token=token)
         self.remote_storage_url = remote_storage_url
         self.token = token
+
+    def _required_env(self) -> Dict[str, str]:
+        env = self.environment
+        vars_to_preserve = self.runtime_context.preserve_environment
+        if self.runtime_context.preserve_entire_environment:
+            vars_to_preserve = os.environ
+        if vars_to_preserve is not None:
+            for key, value in os.environ.items():
+                if key in vars_to_preserve and key not in env:
+                    # On Windows, subprocess env can't handle unicode.
+                    env[key] = str(value)
+        env["HOME"] = str(self.builder.outdir)
+        env["TMPDIR"] = str(self.builder.tmpdir)
+        return env
 
     def get_container(self):
         default = self.runtime_context.default_container or "python:2.7"
@@ -286,11 +301,9 @@ class TESTask(JobBase):
             for key, value in os.environ.items():
                 if key in vars_to_preserve and key not in env:
                     # On Windows, subprocess env can't handle unicode.
-                    env[key] = str(value) if onWindows() else value
-        env["HOME"] = str(self.builder.outdir) if onWindows() \
-            else self.builder.outdir
-        env["TMPDIR"] = str(self.builder.tmpdir) if onWindows() \
-            else self.builder.tmpdir
+                    env[key] = str(value)
+        env["HOME"] = str(self.builder.outdir)
+        env["TMPDIR"] = str(self.builder.tmpdir)
         return env
 
     def create_task_msg(self):

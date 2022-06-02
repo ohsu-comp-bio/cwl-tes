@@ -39,7 +39,7 @@ def parse_s3_endpoint_url(url):
     else:
         netloc = parse.netloc
         insecure = parse.scheme == "http"
-        url = "s3:/" + parse.path
+        url = "s3:/" + str(parse.path)
 
     return netloc, insecure, url
 
@@ -61,11 +61,14 @@ class S3FsAccess(StdFsAccess):
         """Perform operations with respect to a base directory."""
 
         super().__init__(basedir)
-
+        access=os.environ["AWS_ACCESS_KEY_ID"] if "AWS_ACCESS_KEY_ID" in os.environ else ''
+        secret=os.environ["AWS_SECRET_ACCESS_KEY"] if "AWS_SECRET_ACCESS_KEY" in os.environ else ''
+        if (access=='') or (secret==''):
+            return None
         self._client = minio.Minio(
             url,
-            access_key=os.environ["AWS_ACCESS_KEY_ID"],
-            secret_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+            access_key=access,
+            secret_key=secret,
             secure=not insecure,
         )
 
