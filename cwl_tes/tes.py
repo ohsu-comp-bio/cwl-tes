@@ -121,12 +121,14 @@ class TESPathMapper(PathMapper):
                 with SourceLine(obj, "location", validate.ValidationException,
                                 log.isEnabledFor(logging.DEBUG)):
                     deref = abpath
-                    
-                    if urllib.parse.urlsplit(deref).scheme in [
+                    prefix= urllib.parse.urlsplit(deref).scheme
+                    log.warning(prefix)
+                    log.warning(abpath)
+                    if prefix in [
                             'http', 'https']:
-                        deref = downloadHttpFile(path)
-                    elif urllib.parse.urlsplit(deref).scheme in ('ftp', 's3'):
-                        deref = self._download_streaming_file(path)
+                        deref = downloadHttpFile(abpath)
+                    elif prefix in ('ftp', 's3'):
+                        deref = self._download_streaming_file(abpath)
                     else:
                         log.warning("unprocessed File %s", obj)
                         # Dereference symbolic links
