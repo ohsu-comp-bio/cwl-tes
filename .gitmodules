@@ -1,3 +1,0 @@
-[submodule "tests/schemas"]
-	path = tests/schemas
-	url = https://github.com/common-workflow-language/common-workflow-language.git
