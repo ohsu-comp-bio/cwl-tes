@@ -1,0 +1,3 @@
+[submodule "tests/cwl-v1.2"]
+	path = tests/cwl-v1.2
+	url = https://github.com/common-workflow-language/cwl-v1.2.git
