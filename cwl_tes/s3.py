@@ -64,7 +64,8 @@ class S3FsAccess(StdFsAccess):
         access=os.environ["AWS_ACCESS_KEY_ID"] if "AWS_ACCESS_KEY_ID" in os.environ else ''
         secret=os.environ["AWS_SECRET_ACCESS_KEY"] if "AWS_SECRET_ACCESS_KEY" in os.environ else ''
         if (access=='') or (secret==''):
-            return None
+            raise Exception("AWS credentials not provided")
+        print("Endpoint url:" + url)
         self._client = minio.Minio(
             url,
             access_key=access,

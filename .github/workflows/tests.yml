@@ -38,7 +38,7 @@ jobs:
     - name: Start MINIO server
       run: make minio-server
     - name: Start funnel server
-      run: make funnel-server
+      run: make funnel-minio-server
     - name: Start conformance test
       run: make s3-conformance
       env:

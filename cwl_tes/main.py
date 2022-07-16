@@ -137,6 +137,9 @@ def _create_s3_fs_access_factory(parsed_args):
     """
     endpoint, insecure, bucket = parse_s3_endpoint_url(
         parsed_args.remote_storage_url)
+    
+    if parsed_args.endpoint_url != "":
+        endpoint = parsed_args.endpoint_url
 
     factory = functools.partial(
         S3FsAccess, url=endpoint, insecure=insecure
