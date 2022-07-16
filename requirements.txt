@@ -1,8 +1,10 @@
-cwltool==1.0.20191022103248
-cwltest==1.0.20190228134645
+cwltest==2.2.20211116163652
+cwltool==3.1.20220502060230
 future>=0.16.0
-requests>=2.18.2
-minio>=4.0.18
-py-tes>=0.4.0
-PyJWT>=1.6.4
-typing_extensions>=3.7.4
+requests>=2.27.1
+minio>=7.1.8
+py-tes>=0.4.2
+PyJWT>=2.4.0
+typing_extensions>=4.2.0
+boto3>=1.12.24
+google-cloud-storage

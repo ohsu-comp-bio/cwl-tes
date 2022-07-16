@@ -27,7 +27,7 @@ from cwltool.process import scandeps, shortname
 from cwltool.executors import (MultithreadedJobExecutor, SingleJobExecutor,
                                JobExecutor)
 from cwltool.resolver import ga4gh_tool_registries
-from cwltool.pathmapper import visit_class
+from cwltool.utils import visit_class
 from cwltool.process import Process
 
 from .tes import make_tes_tool, TESPathMapper
@@ -35,6 +35,8 @@ from .__init__ import __version__
 
 from .ftp import FtpFsAccess
 from .s3 import S3FsAccess, parse_s3_endpoint_url
+from .gs import GSFsAccess
+from cwltool.stdfsaccess import StdFsAccess
 
 log = logging.getLogger("tes-backend")
 log.setLevel(logging.INFO)
@@ -87,7 +89,7 @@ def fs_upload(base_url, fs_access, cwl_obj):
     cwl_obj.pop("path", None)
     if is_dir:
         if fs_access.isdir(fs_access.join(base_url, basename)):
-            log.warning("FTP upload, Directory %s already exists", basename)
+            log.warning("FS upload, Directory %s already exists", basename)
         else:
             for root, _subdirs, files in os.walk(path, followlinks=True):
                 root_path = base_url + '/' + root[len(dirname):]
@@ -104,6 +106,14 @@ def fs_upload(base_url, fs_access, cwl_obj):
             with open(path, mode="rb") as source:
                 fs_access.upload(source, cwl_obj["location"])
 
+def is_ftp_url(b):
+    return b.startswith("ftp:")
+
+def is_s3_url(b):
+    return b.startswith("s3:") or b.startswith("s3+http:") or b.startswith("s3+https:")
+
+def is_gs_url(b):
+    return b.startswith("gs:")
 
 def _create_ftp_fs_access_factory(parsed_args):
     """ Return a callable that creates an FtpFsAccess instance.
@@ -127,6 +137,9 @@ def _create_s3_fs_access_factory(parsed_args):
     """
     endpoint, insecure, bucket = parse_s3_endpoint_url(
         parsed_args.remote_storage_url)
+    
+    if parsed_args.endpoint_url != "":
+        endpoint = parsed_args.endpoint_url
 
     factory = functools.partial(
         S3FsAccess, url=endpoint, insecure=insecure
@@ -187,7 +200,7 @@ def main(args=None):
     signal.signal(signal.SIGINT, signal_handler)
 
     remote_storage_url = parsed_args.remote_storage_url
-    scheme = urlparse(remote_storage_url).scheme
+    scheme = str(urlparse(remote_storage_url).scheme)
     if scheme in ('http', 'https'):
         make_fs_access = _create_s3_fs_access_factory(parsed_args)
         storage_location = parse_s3_endpoint_url(
@@ -205,15 +218,18 @@ def main(args=None):
         data_url = fs_access.join(storage_location, str(uuid.uuid4()))
         parsed_args.remote_storage_url = data_url
 
+
     loading_context = cwltool.main.LoadingContext(vars(parsed_args))
     loading_context.construct_tool_object = functools.partial(
         make_tes_tool, url=parsed_args.tes,
         remote_storage_url=parsed_args.remote_storage_url,
         token=parsed_args.token)
+
     runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
     runtime_context.make_fs_access = make_fs_access
     runtime_context.path_mapper = functools.partial(
         TESPathMapper, fs_access=fs_access)
+    runtime_context.str_uuid = str(uuid.uuid4())
     job_executor = MultithreadedJobExecutor() if parsed_args.parallel \
         else SingleJobExecutor()
     job_executor.max_ram = job_executor.max_cores = float("inf")
@@ -451,6 +467,7 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
                         type=Text, default=os.path.abspath('.'),
                         help="Output directory, default current directory")
     parser.add_argument("--remote-storage-url", type=str)
+    parser.add_argument("--endpoint-url", type=str)
     parser.add_argument("--insecure", action="store_true",
                         help=("Connect securely to FTP server (ignored when "
                               "--remote-storage-url is not set)"))
@@ -705,7 +722,7 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
     exgroup.add_argument(
         "--compute-checksum",
         action="store_true",
-        default=True,
+        default=False,
         help="Compute checksum of contents while collecting outputs",
         dest="compute_checksum")
     exgroup.add_argument(
