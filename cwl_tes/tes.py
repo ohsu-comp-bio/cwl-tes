@@ -39,23 +39,25 @@ from .ftp import abspath
 log = logging.getLogger("tes-backend")
 
 
-def make_tes_tool(spec, loading_context, url, remote_storage_url, token):
+def make_tes_tool(spec, loading_context, url, remote_storage_url, token, user, password):
     """cwl-tes specific factory for CWL Process generation."""
     if "class" in spec and spec["class"] == "CommandLineTool":
         return TESCommandLineTool(
-            spec, loading_context, url, remote_storage_url, token)
+            spec, loading_context, url, remote_storage_url, token, user, password)
     return default_make_tool(spec, loading_context)
 
 
 class TESCommandLineTool(CommandLineTool):
     """cwl-tes specific CommandLineTool."""
 
-    def __init__(self, spec, loading_context, url, remote_storage_url, token):
+    def __init__(self, spec, loading_context, url, remote_storage_url, token, user, password):
         super(TESCommandLineTool, self).__init__(spec, loading_context)
         self.spec = spec
         self.url = url
         self.remote_storage_url = remote_storage_url
         self.token = token
+        self.user=user
+        self.password=password
 
     def make_path_mapper(self, reffiles, stagedir, runtimeContext,
                          separateDirs):
@@ -75,7 +77,7 @@ class TESCommandLineTool(CommandLineTool):
         return functools.partial(TESTask, runtime_context=runtimeContext,
                                  url=self.url, spec=self.spec,
                                  remote_storage_url=remote_storage_url,
-                                 token=self.token)
+                                 token=self.token, user=self.user, password=self.password)
 
 
 class TESPathMapper(PathMapper):
@@ -160,7 +162,9 @@ class TESTask(JobBase):
                  url,
                  spec,
                  remote_storage_url=None,
-                 token=None):
+                 token=None,
+                 user=None,
+                 password=None):
         super(TESTask, self).__init__(builder, joborder, make_path_mapper,
                                       requirements, hints, name)
         self.runtime_context = runtime_context
@@ -175,9 +179,11 @@ class TESTask(JobBase):
         self.exit_code = None
         self.poll_interval = 1
         self.poll_retries = 10
-        self.client = tes.HTTPClient(url, token=token)
+        self.client = tes.HTTPClient(url, token=token, user=user, password=password)
         self.remote_storage_url = remote_storage_url
         self.token = token
+        self.user = user
+        self.password = password
 
     def get_container(self):
         default = self.runtime_context.default_container or "python:2.7"

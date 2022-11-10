@@ -168,7 +168,7 @@ def main(args=None):
     loading_context.construct_tool_object = functools.partial(
         make_tes_tool, url=parsed_args.tes,
         remote_storage_url=parsed_args.remote_storage_url,
-        token=parsed_args.token)
+        token=parsed_args.token,user=parsed_args.user,password=parsed_args.password)
     runtime_context = cwltool.main.RuntimeContext(vars(parsed_args))
     runtime_context.make_fs_access = functools.partial(
         CachingFtpFsAccess, insecure=parsed_args.insecure)
@@ -414,6 +414,8 @@ def arg_parser():  # type: () -> argparse.ArgumentParser
     parser.add_argument("--insecure", action="store_true",
                         help=("Connect securely to FTP server (ignored when "
                               "--remote-storage-url is not set)"))
+    parser.add_argument("--user", type=str, help="Funnel basic auth user.")
+    parser.add_argument("--password", type=str, help="Funnel basic auth password.")
     parser.add_argument("--token", type=str)
     parser.add_argument("--token-public-key", type=str,
                         default=DEFAULT_TOKEN_PUBLIC_KEY)
