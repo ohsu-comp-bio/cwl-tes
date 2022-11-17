@@ -45,7 +45,8 @@ setup(
         "py-tes>=0.4.0",
         "PyJWT>=1.6.4",
         "requests>=2.14.2",
-        "typing_extensions>=3.7.4"
+        "typing_extensions>=3.7.4",
+        "minio>=4.0.18"
     ],
     extras_require={
         "test": [
