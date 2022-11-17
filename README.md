@@ -5,8 +5,6 @@
 
 ___cwl-tes___ submits your tasks to a TES server. Task submission is parallelized when possible.
 
-[Funnel](https://ohsu-comp-bio.github.io/funnel) is an implementation of the [GA4GH task execution API](https://github.com/ga4gh/task-execution-schemas). It runs your dockerized tasks on slurm, htcondor, google compute engine, aws batch, etc.
-
 
 ## Requirements
 
@@ -14,82 +12,42 @@ ___cwl-tes___ submits your tasks to a TES server. Task submission is parallelize
 
 * [Docker](https://docs.docker.com/)
 
-* [Funnel](https://ohsu-comp-bio.github.io/funnel)
 
 ## Quickstart
 
-* Start the task server
+How to run a CWL workflow on the EBRAINS experimental TES server:
 
-```
-funnel server run
-```
+1. Clone this repo:
 
-* Run your CWL tool/workflow
-
-```
-cwl-tes --tes http://localhost:8000 tests/hashsplitter-workflow.cwl.yml --input tests/resources/test.txt
-```
-
-## Install
-
-I strongly recommend using a [virtualenv](https://virtualenv.pypa.io/en/stable/#) for installation since _cwl-tes_
-depends on a specific version of _cwltool_.
-
-Install from pip:
-
-```
-pip install cwl-tes
-```
+        git clone git@gitlab.ebrains.eu:technical-coordination/private/workflows/cwl-tes.git
 
 
-Install from source:
+2. Install this version of the cwl-tes package:
 
-```
-python setup.py install
-```
+        python3 -m venv cwl-env
+        source cwl-env/bin/activate
+        pip install --upgrade pip
+        cd cwl-tes/
+        pip install .
 
 
-## Run the v1.0 conformance tests
+3. Make sure that you have access to the CSCS Swift object storage and that your credentials are stored correctly in ~/.aws/credentials:
 
-To start a funnel server instance automatically and run all of the tests, install [tox](https://github.com/tox-dev/tox/) and run it
+        [default]
+        aws_access_key_id=EXAMPLE_KEY_ID
+        aws_secret_access_key=EXAMPLE_ACCESS_KEY
 
-```
-$ pip install tox
-$ tox
-```
+    For info on how to get the access key id and secret access key, see here: https://user.cscs.ch/storage/object_storage/#swift-s3-api
 
-For running only the conformance tests in python 2.7:
 
-```
-$ tox -e py27-unit
-```
+4. Obtain an EBRAINS token (from the Collaboratory):
 
-In a similar way they can be run on any supported python interpreter.
+         export token=EXAMPLE_TOKEN
 
-_A more manual approach:_
+5. Find a CWL workflow and run it using cwl-tes:
 
-Download the conformance tests:
+        cwl-tes --tes <tes-endpoint> --remote-storage-url <object-storage-endpoint>/<container_name> --token $token <workflow>.cwl <workflow_info>.yml
 
-```
-git submodule update --init --recursive
-```
+For example:
 
-Start the funnel server.
-
-```
-funnel server --config /path/to/config.yaml
-```
-
-Make sure that TMPDIR is specified in the AllowedDirs of your Local storage configuration.
-
-To run all the tests:
-
-```
-./tests/run_conformance.sh
-```
-
-To run a specifc test:
-
-```
-./tests/run_conformance.sh 10
-```
+        cwl-tes --tes https://tes-codejam.apps-dev.hbp.eu/  --remote-storage-url https://swift.bsc.es/tesk_storage_container --token $token workflow.cwl workflow_info.yml
