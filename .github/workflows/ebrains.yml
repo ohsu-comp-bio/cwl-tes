@@ -1,0 +1,25 @@
+name: Mirror to Ebrains
+
+# Configure the events that are going to trigger tha automated update of the mirror
+on:
+  push:
+    branches: [ v0.4.0 ]
+
+# Configure what will be updated
+jobs:
+  # set the job name
+  to_ebrains:
+    runs-on: ubuntu-latest
+    steps:
+      # this task will push the v0.4.0 branch of the source_repo (github) to the
+      # destination_repo (ebrains gitlab)
+      - name: syncmaster
+        uses: wei/git-sync@v3
+        # component owners need to set their own variables
+        # the destination_repo format is
+        # https://gitlab_service_account_name:${{ secrets.EBRAINS_GITLAB_ACCESS_TOKEN }}@gitlab.ebrains.eu/name_of_mirror.git
+        with:
+          source_repo: "elenimath/cwl-tes"
+          source_branch: "v0.4.0"
+          destination_repo: "https://ghpusher:${{ secrets.EBRAINS_GITLAB_ACCESS_TOKEN }}@gitlab.ebrains.eu/technical-coordination/private/workflows/cwl-tes.git"
+          destination_branch: "main"
