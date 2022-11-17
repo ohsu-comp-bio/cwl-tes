@@ -177,7 +177,7 @@ class TESTask(JobBase):
         self.token = token
 
     def get_container(self):
-        default = self.runtime_context.default_container or "docker-registry.ebrains.eu/tc/python:latest"
+        default = self.runtime_context.default_container or "docker-registry.ebrains.eu/tc/python:3.8-alpine"
         container = default
 
         docker_req, _ = self.get_requirement("DockerRequirement")
