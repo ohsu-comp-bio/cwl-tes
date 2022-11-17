@@ -152,7 +152,7 @@ def main(args=None):
         print("cwl-tes: error: argument --tes is required")
         return 1
 
-    if parsed_args.token:
+    if parsed_args.token and parsed_args.token_public_key:
         try:
             validation_options = {}
             validation_options['verify_aud'] = False
