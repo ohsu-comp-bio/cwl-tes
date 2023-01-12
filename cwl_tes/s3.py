@@ -145,33 +145,37 @@ class S3FsAccess(StdFsAccess):
 
     def isfile(self, fn):  # type: (str) -> bool
         """ Check if a bucket resource exists and is a file.
-
-        Note: S3 does not really distinguish between files and directory.
-        Consequently, this function (and `isdir`) merely check that the
-        given object exists.
-
         """
         _logger.debug("isfile() for %s", fn)
 
         if not is_s3(fn):
             return super().isfile(fn)
 
-        return self.exists(fn)
+        try:
+            sz = self.size(fn)
+            if sz is None:
+                return False
+            return True
+        except Exception:
+            return False
 
     def isdir(self, fn):  # type: (str) -> bool
         """ Check if a bucket resource exists and is a directory.
-
-        Note: S3 does not really distinguish between files and directory.
-        Consequently, this function (and `isfile`) merely check that the
-        given object exists.
-
         """
         _logger.debug("isdir() for %s", fn)
 
         if not is_s3(fn):
             return super().isdir(fn)
 
-        return self.exists(fn)
+        bucket, relpath = _parse_bucket_url(fn)
+        objs = self._client.list_objects(bucket, prefix=relpath)
+        paths = [obj.object_name for obj in objs]
+
+        if len(paths) == 1 and self.isfile(_make_bucket_url(bucket, paths[0])):
+            # is file
+            return False
+        else:
+            return True
 
     def mkdir(self, url, recursive=True):
         """ Make a directory inside the bucket.
@@ -197,6 +201,8 @@ class S3FsAccess(StdFsAccess):
         _logger.debug("listdir() for %s", fn)
 
         bucket, relpath = _parse_bucket_url(fn)
+        if relpath[-1] != "/":
+            relpath = relpath + "/"
 
         prefix = relpath or None
         objs = self._client.list_objects(bucket, prefix=prefix)
