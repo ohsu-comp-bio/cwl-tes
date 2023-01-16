@@ -24,9 +24,17 @@ How to run a CWL workflow on the EBRAINS experimental TES server:
 
 2. Install this version of the cwl-tes package:
 
+        # create a virtualenv:
+        python3 -m virtualenv cwl-env
+        source cwl-env/bin/activate
+        
+        # or venv:
         python3 -m venv cwl-env
         source cwl-env/bin/activate
         pip install --upgrade pip
+        pip install --upgrade wheel
+
+        # and install cwl-tes:
         cd cwl-tes/
         pip install .
 
