@@ -141,7 +141,11 @@ class S3FsAccess(StdFsAccess):
 
         bucket, relpath = _parse_bucket_url(fn)
         obj = self._client.stat_object(bucket, relpath)
-        return obj.size
+        try:
+            sz = obj.size
+            return sz
+        except:
+            return None
 
     def isfile(self, fn):  # type: (str) -> bool
         """ Check if a bucket resource exists and is a file.
@@ -153,7 +157,7 @@ class S3FsAccess(StdFsAccess):
 
         try:
             sz = self.size(fn)
-            if sz is None:
+            if sz is None or sz == 0:
                 return False
             return True
         except Exception:
