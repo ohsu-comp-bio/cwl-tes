@@ -140,12 +140,17 @@ class S3FsAccess(StdFsAccess):
             return super().size(fn)
 
         bucket, relpath = _parse_bucket_url(fn)
-        obj = self._client.stat_object(bucket, relpath)
         try:
+            # if this is a file, return its size
+            obj = self._client.stat_object(bucket, relpath)
             sz = obj.size
             return sz
-        except:
-            return None
+        except minio.error.S3Error as exc:
+            # if the error is that there is no such file, return None
+            if exc.code == "NoSuchKey":
+                return None
+            # if the error is something else, raise it
+            raise
 
     def isfile(self, fn):  # type: (str) -> bool
         """ Check if a bucket resource exists and is a file.
@@ -155,13 +160,10 @@ class S3FsAccess(StdFsAccess):
         if not is_s3(fn):
             return super().isfile(fn)
 
-        try:
-            sz = self.size(fn)
-            if sz is None or sz == 0:
-                return False
-            return True
-        except Exception:
+        sz = self.size(fn)
+        if sz is None or sz == 0:
             return False
+        return True
 
     def isdir(self, fn):  # type: (str) -> bool
         """ Check if a bucket resource exists and is a directory.
