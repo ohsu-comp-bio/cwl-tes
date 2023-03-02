@@ -524,6 +524,12 @@ class TESTask(JobBase):
                 self.name, self.tmpdir
             )
             shutil.rmtree(self.tmpdir, True)
+        if self.outdir:
+            log.debug(
+            "[job %s] Removing outdir directory %s",
+                self.name, self.outdir
+            )
+            shutil.rmtree(self.outdir, True)
 
     def output2url(self, path):
         if path is not None:
